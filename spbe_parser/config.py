@@ -102,6 +102,7 @@ BOOLEAN_MAPPING: Dict[str, str] = {
 REQUEST_TIMEOUT = 30
 REQUEST_DELAY = 1  # seconds between requests to avoid rate limiting
 MAX_RETRIES = 3
+VERIFY_SSL = False  # Set to False to disable SSL certificate verification (common for parsers)
 
 # User agent
 USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"

@@ -10,6 +10,7 @@ from typing import Optional, Dict, Any
 from pathlib import Path
 import requests
 from bs4 import BeautifulSoup
+import urllib3
 
 from .config import (
     REQUEST_TIMEOUT,
@@ -20,7 +21,12 @@ from .config import (
     LOG_LEVEL,
     COUPON_FREQUENCY_MAPPING,
     BOOLEAN_MAPPING,
+    VERIFY_SSL,
 )
+
+# Disable SSL warnings if verification is disabled
+if not VERIFY_SSL:
+    urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 
 def setup_logger(name: str, log_file: Optional[str] = None) -> logging.Logger:
@@ -78,6 +84,10 @@ def make_request(url: str, logger: logging.Logger, method: str = "GET", **kwargs
 
     if 'timeout' not in kwargs:
         kwargs['timeout'] = REQUEST_TIMEOUT
+
+    # Set SSL verification
+    if 'verify' not in kwargs:
+        kwargs['verify'] = VERIFY_SSL
 
     for attempt in range(MAX_RETRIES):
         try:
