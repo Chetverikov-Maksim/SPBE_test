@@ -119,5 +119,5 @@ LOG_FORMAT = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 LOG_LEVEL = "INFO"
 
 # Debug settings
-DEBUG_SAVE_HTML = False  # Set to True to save HTML responses for debugging
+DEBUG_SAVE_HTML = True  # Set to True to save HTML responses for debugging
 DEBUG_DIR = os.path.join(OUTPUT_DIR, "debug")
