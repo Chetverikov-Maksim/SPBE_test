@@ -27,6 +27,8 @@ from .config import (
     SELENIUM_HEADLESS,
     SELENIUM_PAGE_LOAD_TIMEOUT,
     SELENIUM_IMPLICIT_WAIT,
+    DEBUG_SAVE_HTML,
+    DEBUG_DIR,
 )
 
 # Disable SSL warnings if verification is disabled
@@ -293,15 +295,61 @@ def get_html(url: str, logger: logging.Logger) -> Optional[str]:
     Returns:
         HTML content as string or None if failed
     """
+    logger.debug(f"Fetching HTML from: {url}")
+    logger.debug(f"Using {'Selenium' if USE_SELENIUM else 'requests library'}")
+
     if USE_SELENIUM:
         # Use Selenium to fetch HTML
-        return fetch_with_selenium(url, logger)
+        html = fetch_with_selenium(url, logger)
+        if html:
+            logger.info(f"✓ Successfully fetched HTML via Selenium ({len(html)} bytes)")
+
+            # Save HTML for debugging if enabled
+            if DEBUG_SAVE_HTML:
+                _save_debug_html(html, url, logger)
+        else:
+            logger.error("✗ Failed to fetch HTML via Selenium")
+        return html
     else:
         # Use requests library
         response = make_request(url, logger)
         if response:
+            logger.info(f"✓ Successfully fetched HTML via requests ({len(response.text)} bytes)")
+
+            # Save HTML for debugging if enabled
+            if DEBUG_SAVE_HTML:
+                _save_debug_html(response.text, url, logger)
+
             return response.text
-        return None
+        else:
+            logger.error("✗ Failed to fetch HTML via requests")
+            return None
+
+
+def _save_debug_html(html: str, url: str, logger: logging.Logger):
+    """Save HTML content to debug directory for inspection"""
+    try:
+        import hashlib
+        from datetime import datetime
+
+        # Create debug directory if it doesn't exist
+        os.makedirs(DEBUG_DIR, exist_ok=True)
+
+        # Generate filename from URL hash and timestamp
+        url_hash = hashlib.md5(url.encode()).hexdigest()[:8]
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"html_{timestamp}_{url_hash}.html"
+        filepath = os.path.join(DEBUG_DIR, filename)
+
+        # Save HTML
+        with open(filepath, 'w', encoding='utf-8') as f:
+            f.write(f"<!-- URL: {url} -->\n")
+            f.write(f"<!-- Fetched at: {datetime.now().isoformat()} -->\n\n")
+            f.write(html)
+
+        logger.debug(f"Debug: Saved HTML to {filepath}")
+    except Exception as e:
+        logger.warning(f"Failed to save debug HTML: {e}")
 
 
 def get_soup(url: str, logger: logging.Logger) -> Optional[BeautifulSoup]:
@@ -336,23 +384,47 @@ def extract_json_from_nextjs_html(html_content: str, logger: logging.Logger) -> 
         Extracted pageData dictionary or None
     """
     try:
+        logger.debug(f"Extracting JSON from HTML (size: {len(html_content)} bytes)")
+
+        # Check if HTML contains Next.js markers
+        if 'self.__next_f' not in html_content:
+            logger.error("HTML does not contain Next.js markers (self.__next_f). This might not be a Next.js page or page structure changed.")
+            logger.debug(f"HTML preview (first 500 chars): {html_content[:500]}")
+            return None
+
         # Find all script tags with self.__next_f.push
         script_pattern = r'self\.__next_f\.push\(\[1,"(.+?)"\]\)'
         matches = re.findall(script_pattern, html_content, re.DOTALL)
 
         if not matches:
-            logger.warning("No Next.js data found in HTML")
+            logger.error("ERROR: No Next.js script data found. Regex pattern did not match.")
+            logger.debug(f"HTML contains 'self.__next_f' but pattern failed to match")
             return None
+
+        logger.debug(f"Found {len(matches)} Next.js script matches")
 
         # Concatenate all matched data
         full_data = ''.join(matches)
+        logger.debug(f"Concatenated data size: {len(full_data)} bytes")
 
         # Look for pageData in the concatenated string
         page_data_match = re.search(r'"pageData":\{(.+?)\},"params"', full_data)
 
         if not page_data_match:
-            logger.warning("No pageData found in Next.js scripts")
+            logger.error("ERROR: No 'pageData' structure found in Next.js scripts")
+            logger.debug("Searching for alternative data patterns...")
+
+            # Try alternative patterns
+            alt_match = re.search(r'"pageData":', full_data)
+            if alt_match:
+                logger.debug("Found 'pageData' key but structure doesn't match expected pattern")
+                logger.debug(f"Data around pageData: {full_data[max(0, alt_match.start()-100):alt_match.end()+200]}")
+            else:
+                logger.debug("No 'pageData' key found at all in the data")
+
             return None
+
+        logger.debug(f"Successfully found pageData match")
 
         # Extract the pageData JSON
         page_data_json = '{' + page_data_match.group(1) + '}'
@@ -361,16 +433,21 @@ def extract_json_from_nextjs_html(html_content: str, logger: logging.Logger) -> 
         page_data_json = page_data_json.replace('\\', '')
 
         # Parse JSON
+        logger.debug(f"Attempting to parse JSON (length: {len(page_data_json)} chars)")
         page_data = json.loads(page_data_json)
 
-        logger.debug(f"Successfully extracted pageData with {len(page_data.get('content', []))} items")
+        content_count = len(page_data.get('content', []))
+        logger.info(f"✓ Successfully extracted pageData with {content_count} items")
         return page_data
 
     except json.JSONDecodeError as e:
-        logger.error(f"Failed to parse JSON from HTML: {e}")
+        logger.error(f"ERROR: JSON parsing failed at position {e.pos}: {e.msg}")
+        logger.debug(f"Failed JSON preview: {page_data_json[:200]}...")
         return None
     except Exception as e:
-        logger.error(f"Error extracting JSON from HTML: {e}")
+        logger.error(f"ERROR: Unexpected error during JSON extraction: {type(e).__name__}: {e}")
+        import traceback
+        logger.debug(f"Traceback: {traceback.format_exc()}")
         return None
 
 
