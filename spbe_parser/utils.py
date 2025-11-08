@@ -6,6 +6,7 @@ import os
 import re
 import time
 import logging
+import json
 from typing import Optional, Dict, Any
 from pathlib import Path
 import requests
@@ -22,11 +23,134 @@ from .config import (
     COUPON_FREQUENCY_MAPPING,
     BOOLEAN_MAPPING,
     VERIFY_SSL,
+    USE_SELENIUM,
+    SELENIUM_HEADLESS,
+    SELENIUM_PAGE_LOAD_TIMEOUT,
+    SELENIUM_IMPLICIT_WAIT,
+    DEBUG_SAVE_HTML,
+    DEBUG_DIR,
 )
 
 # Disable SSL warnings if verification is disabled
 if not VERIFY_SSL:
     urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
+# Global Selenium driver instance (lazy-loaded)
+_selenium_driver = None
+
+
+def get_selenium_driver(logger: logging.Logger):
+    """
+    Get or create Selenium WebDriver instance
+
+    Args:
+        logger: Logger instance
+
+    Returns:
+        WebDriver instance
+    """
+    global _selenium_driver
+
+    if _selenium_driver is not None:
+        return _selenium_driver
+
+    try:
+        from selenium import webdriver
+        from selenium.webdriver.chrome.service import Service
+        from selenium.webdriver.chrome.options import Options
+        from webdriver_manager.chrome import ChromeDriverManager
+
+        logger.info("Initializing Selenium WebDriver...")
+
+        # Configure Chrome options
+        chrome_options = Options()
+
+        if SELENIUM_HEADLESS:
+            chrome_options.add_argument('--headless=new')
+            logger.debug("Running Chrome in headless mode")
+
+        # Additional options to appear more like a real browser
+        chrome_options.add_argument(f'--user-agent={USER_AGENT}')
+        chrome_options.add_argument('--disable-blink-features=AutomationControlled')
+        chrome_options.add_argument('--disable-dev-shm-usage')
+        chrome_options.add_argument('--no-sandbox')
+        chrome_options.add_argument('--disable-gpu')
+        chrome_options.add_argument('--window-size=1920,1080')
+
+        # Exclude automation flags
+        chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
+        chrome_options.add_experimental_option('useAutomationExtension', False)
+
+        # Initialize driver
+        service = Service(ChromeDriverManager().install())
+        driver = webdriver.Chrome(service=service, options=chrome_options)
+
+        # Set timeouts
+        driver.set_page_load_timeout(SELENIUM_PAGE_LOAD_TIMEOUT)
+        driver.implicitly_wait(SELENIUM_IMPLICIT_WAIT)
+
+        # Execute script to hide webdriver property
+        driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
+
+        _selenium_driver = driver
+        logger.info("Selenium WebDriver initialized successfully")
+
+        return _selenium_driver
+
+    except Exception as e:
+        logger.error(f"Failed to initialize Selenium WebDriver: {e}")
+        raise
+
+
+def close_selenium_driver(logger: logging.Logger):
+    """
+    Close Selenium WebDriver instance
+
+    Args:
+        logger: Logger instance
+    """
+    global _selenium_driver
+
+    if _selenium_driver is not None:
+        try:
+            logger.info("Closing Selenium WebDriver...")
+            _selenium_driver.quit()
+            _selenium_driver = None
+            logger.info("Selenium WebDriver closed")
+        except Exception as e:
+            logger.warning(f"Error closing Selenium WebDriver: {e}")
+
+
+def fetch_with_selenium(url: str, logger: logging.Logger, wait_time: int = 3) -> Optional[str]:
+    """
+    Fetch HTML content using Selenium
+
+    Args:
+        url: URL to fetch
+        logger: Logger instance
+        wait_time: Time to wait for page to load (seconds)
+
+    Returns:
+        HTML content as string or None if failed
+    """
+    try:
+        driver = get_selenium_driver(logger)
+
+        logger.debug(f"Fetching with Selenium: {url}")
+        driver.get(url)
+
+        # Wait for page to load
+        time.sleep(wait_time)
+
+        # Get page source
+        html = driver.page_source
+
+        logger.debug(f"Successfully fetched {len(html)} bytes from {url}")
+        return html
+
+    except Exception as e:
+        logger.error(f"Selenium fetch failed for {url}: {e}")
+        return None
 
 
 def setup_logger(name: str, log_file: Optional[str] = None) -> logging.Logger:
@@ -77,9 +201,30 @@ def make_request(url: str, logger: logging.Logger, method: str = "GET", **kwargs
     Returns:
         Response object or None if all retries failed
     """
+    # Set comprehensive browser-like headers
     headers = kwargs.get('headers', {})
-    if 'User-Agent' not in headers:
-        headers['User-Agent'] = USER_AGENT
+
+    # Add all necessary headers to look like a real browser
+    default_headers = {
+        'User-Agent': USER_AGENT,
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
+        'Accept-Language': 'ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7',
+        'Accept-Encoding': 'gzip, deflate, br',
+        'DNT': '1',
+        'Connection': 'keep-alive',
+        'Upgrade-Insecure-Requests': '1',
+        'Sec-Fetch-Dest': 'document',
+        'Sec-Fetch-Mode': 'navigate',
+        'Sec-Fetch-Site': 'none',
+        'Sec-Fetch-User': '?1',
+        'Cache-Control': 'max-age=0',
+    }
+
+    # Merge with provided headers (provided headers take priority)
+    for key, value in default_headers.items():
+        if key not in headers:
+            headers[key] = value
+
     kwargs['headers'] = headers
 
     if 'timeout' not in kwargs:
@@ -89,21 +234,44 @@ def make_request(url: str, logger: logging.Logger, method: str = "GET", **kwargs
     if 'verify' not in kwargs:
         kwargs['verify'] = VERIFY_SSL
 
+    # Create session for persistent cookies
+    session = requests.Session()
+
     for attempt in range(MAX_RETRIES):
         try:
             logger.debug(f"Requesting {url} (attempt {attempt + 1}/{MAX_RETRIES})")
 
             if method.upper() == "GET":
-                response = requests.get(url, **kwargs)
+                response = session.get(url, **kwargs)
             elif method.upper() == "POST":
-                response = requests.post(url, **kwargs)
+                response = session.post(url, **kwargs)
             else:
                 logger.error(f"Unsupported HTTP method: {method}")
                 return None
 
             response.raise_for_status()
+
+            # Check if we got blocked (403 with "Access denied" or similar)
+            if response.status_code == 403 or (response.status_code == 200 and len(response.content) < 100 and b'denied' in response.content.lower()):
+                logger.warning(f"Possible access block detected (status: {response.status_code}, content length: {len(response.content)})")
+                if attempt < MAX_RETRIES - 1:
+                    time.sleep(3 * (2 ** attempt))  # Longer wait when blocked
+                    continue
+
             time.sleep(REQUEST_DELAY)
             return response
+
+        except requests.exceptions.HTTPError as e:
+            if e.response and e.response.status_code == 403:
+                logger.warning(f"403 Forbidden - Site may be blocking requests (attempt {attempt + 1}/{MAX_RETRIES})")
+            else:
+                logger.warning(f"HTTP error (attempt {attempt + 1}/{MAX_RETRIES}): {e}")
+
+            if attempt < MAX_RETRIES - 1:
+                time.sleep(3 * (2 ** attempt))
+            else:
+                logger.error(f"All retry attempts failed for {url}")
+                return None
 
         except requests.exceptions.RequestException as e:
             logger.warning(f"Request failed (attempt {attempt + 1}/{MAX_RETRIES}): {e}")
@@ -114,6 +282,74 @@ def make_request(url: str, logger: logging.Logger, method: str = "GET", **kwargs
                 return None
 
     return None
+
+
+def get_html(url: str, logger: logging.Logger) -> Optional[str]:
+    """
+    Get HTML content from URL (works with both Selenium and requests)
+
+    Args:
+        url: URL to fetch
+        logger: Logger instance
+
+    Returns:
+        HTML content as string or None if failed
+    """
+    logger.debug(f"Fetching HTML from: {url}")
+    logger.debug(f"Using {'Selenium' if USE_SELENIUM else 'requests library'}")
+
+    if USE_SELENIUM:
+        # Use Selenium to fetch HTML
+        html = fetch_with_selenium(url, logger)
+        if html:
+            logger.info(f"✓ Successfully fetched HTML via Selenium ({len(html)} bytes)")
+
+            # Save HTML for debugging if enabled
+            if DEBUG_SAVE_HTML:
+                _save_debug_html(html, url, logger)
+        else:
+            logger.error("✗ Failed to fetch HTML via Selenium")
+        return html
+    else:
+        # Use requests library
+        response = make_request(url, logger)
+        if response:
+            logger.info(f"✓ Successfully fetched HTML via requests ({len(response.text)} bytes)")
+
+            # Save HTML for debugging if enabled
+            if DEBUG_SAVE_HTML:
+                _save_debug_html(response.text, url, logger)
+
+            return response.text
+        else:
+            logger.error("✗ Failed to fetch HTML via requests")
+            return None
+
+
+def _save_debug_html(html: str, url: str, logger: logging.Logger):
+    """Save HTML content to debug directory for inspection"""
+    try:
+        import hashlib
+        from datetime import datetime
+
+        # Create debug directory if it doesn't exist
+        os.makedirs(DEBUG_DIR, exist_ok=True)
+
+        # Generate filename from URL hash and timestamp
+        url_hash = hashlib.md5(url.encode()).hexdigest()[:8]
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"html_{timestamp}_{url_hash}.html"
+        filepath = os.path.join(DEBUG_DIR, filename)
+
+        # Save HTML
+        with open(filepath, 'w', encoding='utf-8') as f:
+            f.write(f"<!-- URL: {url} -->\n")
+            f.write(f"<!-- Fetched at: {datetime.now().isoformat()} -->\n\n")
+            f.write(html)
+
+        logger.debug(f"Debug: Saved HTML to {filepath}")
+    except Exception as e:
+        logger.warning(f"Failed to save debug HTML: {e}")
 
 
 def get_soup(url: str, logger: logging.Logger) -> Optional[BeautifulSoup]:
@@ -127,10 +363,140 @@ def get_soup(url: str, logger: logging.Logger) -> Optional[BeautifulSoup]:
     Returns:
         BeautifulSoup object or None if failed
     """
-    response = make_request(url, logger)
-    if response:
-        return BeautifulSoup(response.content, 'html.parser')
+    html = get_html(url, logger)
+    if html:
+        return BeautifulSoup(html, 'html.parser')
     return None
+
+
+def extract_json_from_nextjs_html(html_content: str, logger: logging.Logger) -> Optional[Dict[str, Any]]:
+    """
+    Extract JSON data from Next.js server-side rendered HTML
+
+    Next.js embeds data in <script> tags in the format:
+    self.__next_f.push([1,"...JSON data..."])
+
+    Args:
+        html_content: HTML content as string
+        logger: Logger instance
+
+    Returns:
+        Extracted pageData dictionary or None
+    """
+    try:
+        logger.debug(f"Extracting JSON from HTML (size: {len(html_content)} bytes)")
+
+        # Check if HTML contains Next.js markers
+        if 'self.__next_f' not in html_content:
+            logger.error("HTML does not contain Next.js markers (self.__next_f). This might not be a Next.js page or page structure changed.")
+            logger.debug(f"HTML preview (first 500 chars): {html_content[:500]}")
+            return None
+
+        # Find all script tags with self.__next_f.push
+        script_pattern = r'self\.__next_f\.push\(\[1,"(.+?)"\]\)'
+        matches = re.findall(script_pattern, html_content, re.DOTALL)
+
+        if not matches:
+            logger.error("ERROR: No Next.js script data found. Regex pattern did not match.")
+            logger.debug(f"HTML contains 'self.__next_f' but pattern failed to match")
+            return None
+
+        logger.debug(f"Found {len(matches)} Next.js script matches")
+
+        # Concatenate all matched data
+        full_data = ''.join(matches)
+        logger.debug(f"Concatenated data size: {len(full_data)} bytes")
+
+        # Unescape the data BEFORE pattern matching (Next.js escapes quotes in the push calls)
+        full_data_unescaped = full_data.replace('\\\\', '\x00')  # Temporarily replace double backslash
+        full_data_unescaped = full_data_unescaped.replace('\\', '')  # Remove escape chars
+        full_data_unescaped = full_data_unescaped.replace('\x00', '\\')  # Restore double backslash as single
+        logger.debug(f"Unescaped data for pattern matching (first 500 chars): {full_data_unescaped[:500]}")
+
+        # Try multiple patterns to find page data
+        page_data_json = None
+        pattern_used = None
+
+        # Pattern 1: Standard Next.js pageData structure with params
+        page_data_match = re.search(r'"pageData":\{(.+?)\},"params"', full_data_unescaped)
+        if page_data_match:
+            pattern_used = "pageData with params"
+            page_data_json = '{' + page_data_match.group(1) + '}'
+
+        # Pattern 2: Look for content array with pagination directly (without pageData wrapper)
+        if not page_data_json:
+            # Try to find a JSON object containing content, totalPages, and totalElements
+            content_match = re.search(
+                r'\{[^{}]*"content":\[[^\]]*?\][^{}]*?"totalPages":\d+[^{}]*?"totalElements":\d+[^{}]*?\}',
+                full_data_unescaped
+            )
+            if content_match:
+                pattern_used = "content array with pagination (no pageData)"
+                page_data_json = content_match.group(0)
+
+        # Pattern 3: More aggressive - find any "content" array
+        if not page_data_json:
+            if '"content":[' in full_data_unescaped:
+                logger.debug("Found 'content' array, attempting to extract surrounding object")
+                content_idx = full_data_unescaped.index('"content":[')
+                # Try to find the enclosing object
+                start = full_data_unescaped.rfind('{', 0, content_idx)
+                if start != -1:
+                    # Simple bracket matching
+                    depth = 0
+                    for i in range(start, len(full_data_unescaped)):
+                        if full_data_unescaped[i] == '{':
+                            depth += 1
+                        elif full_data_unescaped[i] == '}':
+                            depth -= 1
+                            if depth == 0:
+                                pattern_used = "content array (bracket matching)"
+                                page_data_json = full_data_unescaped[start:i+1]
+                                break
+
+        if not page_data_json:
+            logger.error("ERROR: No 'pageData' or 'content' structure found in Next.js scripts with any pattern")
+            logger.debug("Searching for data indicators...")
+
+            # Try to find what data IS present
+            if '"content":' in full_data_unescaped:
+                logger.debug("✓ Found 'content' key in data")
+                content_idx = full_data_unescaped.index('"content":')
+                logger.debug(f"Data around content (300 chars): ...{full_data_unescaped[max(0, content_idx-100):content_idx+200]}...")
+
+            if '"totalPages":' in full_data_unescaped:
+                logger.debug("✓ Found 'totalPages' key in data")
+
+            if '"totalElements":' in full_data_unescaped:
+                logger.debug("✓ Found 'totalElements' key in data")
+
+            # Show a sample of the data structure
+            logger.debug(f"Full data preview (first 1000 chars): {full_data_unescaped[:1000]}")
+
+            return None
+
+        logger.debug(f"Successfully found page data using pattern: {pattern_used}")
+        logger.debug(f"Extracted JSON length: {len(page_data_json)} chars")
+
+        # Note: JSON is already unescaped from full_data_unescaped, no need to unescape again
+
+        # Parse JSON
+        logger.debug(f"Attempting to parse JSON (length: {len(page_data_json)} chars)")
+        page_data = json.loads(page_data_json)
+
+        content_count = len(page_data.get('content', []))
+        logger.info(f"✓ Successfully extracted pageData with {content_count} items")
+        return page_data
+
+    except json.JSONDecodeError as e:
+        logger.error(f"ERROR: JSON parsing failed at position {e.pos}: {e.msg}")
+        logger.debug(f"Failed JSON preview: {page_data_json[:200]}...")
+        return None
+    except Exception as e:
+        logger.error(f"ERROR: Unexpected error during JSON extraction: {type(e).__name__}: {e}")
+        import traceback
+        logger.debug(f"Traceback: {traceback.format_exc()}")
+        return None
 
 
 def download_file(url: str, output_path: str, logger: logging.Logger, force: bool = False) -> bool:
