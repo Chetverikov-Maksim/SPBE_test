@@ -6,7 +6,7 @@ import csv
 import json
 import re
 from typing import List, Dict, Any, Optional
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlencode
 
 from .config import (
     SPBE_BASE_URL,
@@ -59,7 +59,14 @@ class ReferenceDataParser:
         while page < max_pages:
             # Build URL with correct parameters format and bond filter
             # Using securityKind=Облигации to filter only bonds on server side
-            url = f"{SPBE_SECURITIES_LIST_URL}?page={page}&size=100&sortBy=securityKind&sortByDirection=desc&securityKind=Облигации"
+            params = {
+                'page': page,
+                'size': 100,
+                'sortBy': 'securityKind',
+                'sortByDirection': 'desc',
+                'securityKind': 'Облигации'
+            }
+            url = f"{SPBE_SECURITIES_LIST_URL}?{urlencode(params)}"
 
             self.logger.debug(f"Fetching page {page}: {url}")
 
