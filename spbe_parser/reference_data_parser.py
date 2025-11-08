@@ -117,33 +117,97 @@ class ReferenceDataParser:
 
     def _get_bonds_list_html(self) -> List[Dict[str, str]]:
         """
-        Fallback method to get bonds list from HTML
+        Fallback method to get bonds list from HTML with pagination
 
         Returns:
             List of bonds with basic info
         """
         bonds = []
-        soup = get_soup(SPBE_SECURITIES_LIST_URL, self.logger)
+        seen_codes = set()
+        page = 0
+        max_pages = 100  # Safety limit
 
-        if not soup:
-            return bonds
+        self.logger.info("Using HTML parsing to fetch bonds...")
 
-        # Find all bond links in the table
-        # This is a simplified approach - actual selector needs to be adjusted
-        bond_links = soup.find_all('a', href=re.compile(r'/listing/securities/\w+'))
+        while page < max_pages:
+            # Construct URL with page parameter
+            url = f"{SPBE_SECURITIES_LIST_URL}?page={page}&size=100"
+            self.logger.debug(f"Fetching HTML page {page}: {url}")
 
-        for link in bond_links:
-            code = link.get_text(strip=True)
-            url = urljoin(SPBE_BASE_URL, link.get('href', ''))
+            soup = get_soup(url, self.logger)
 
-            if code and url:
-                bonds.append({
-                    'code': code,
-                    'isin': '',
-                    'issuer_name': '',
-                    'url': url,
-                })
+            if not soup:
+                self.logger.warning(f"Failed to fetch page {page}")
+                break
 
+            # Find all security links in the table
+            # Look for table rows with security information
+            page_bonds = []
+
+            # Try multiple selectors to find bonds
+            # Method 1: Find all links to securities pages
+            security_links = soup.find_all('a', href=re.compile(r'/listing/securities/[A-Z0-9]+/?$'))
+
+            for link in security_links:
+                code = link.get_text(strip=True)
+                href = link.get('href', '')
+
+                # Skip if already seen
+                if code in seen_codes:
+                    continue
+
+                # Extract security code from href
+                match = re.search(r'/listing/securities/([A-Z0-9]+)/?$', href)
+                if not match:
+                    continue
+
+                security_code = match.group(1)
+                url = urljoin(SPBE_BASE_URL, href)
+
+                # Try to determine if it's a bond by looking at the row context
+                # Find parent row
+                parent_row = link.find_parent('tr')
+                is_bond = False
+
+                if parent_row:
+                    row_text = parent_row.get_text().lower()
+                    # Check if row contains "облигация" or "bond"
+                    if 'облигац' in row_text or 'bond' in row_text:
+                        is_bond = True
+                    # Check for bond patterns (usually have specific naming)
+                    elif re.search(r'(бо-|облигац)', security_code, re.IGNORECASE):
+                        is_bond = True
+                else:
+                    # If no parent row found, we'll check all securities
+                    # and filter later in parse_bond_details
+                    is_bond = True  # Assume it might be a bond
+
+                if is_bond or True:  # For now, fetch all and filter during detail parsing
+                    page_bonds.append({
+                        'code': security_code,
+                        'isin': '',
+                        'issuer_name': '',
+                        'url': url,
+                    })
+                    seen_codes.add(code)
+
+            if not page_bonds:
+                self.logger.info(f"No more securities found on page {page}, stopping pagination")
+                break
+
+            bonds.extend(page_bonds)
+            self.logger.info(f"Page {page}: found {len(page_bonds)} securities (total: {len(bonds)})")
+
+            # Check if there's a next page
+            # Look for pagination controls
+            next_button = soup.find('a', text=re.compile(r'next|след|›|»', re.IGNORECASE))
+            if not next_button or 'disabled' in next_button.get('class', []):
+                self.logger.info("No next page found, stopping pagination")
+                break
+
+            page += 1
+
+        self.logger.info(f"HTML parsing complete: found {len(bonds)} securities total")
         return bonds
 
     def parse_bond_details(self, bond_url: str) -> Dict[str, str]:
@@ -154,13 +218,30 @@ class ReferenceDataParser:
             bond_url: URL to bond details page
 
         Returns:
-            Dictionary with bond data in English field names
+            Dictionary with bond data in English field names, or empty dict if not a bond
         """
         self.logger.debug(f"Parsing bond details: {bond_url}")
 
         soup = get_soup(bond_url, self.logger)
         if not soup:
             self.logger.error(f"Failed to load bond page: {bond_url}")
+            return {}
+
+        # First, check if this is actually a bond
+        security_category = extract_field_value(soup, "Вид, категория (тип) ценной бумаги", self.logger)
+
+        # Filter: only process if it's a bond (облигация)
+        if security_category:
+            category_lower = security_category.lower()
+            if 'облигац' not in category_lower and 'bond' not in category_lower:
+                self.logger.debug(f"Skipping non-bond security: {security_category}")
+                return {}
+
+        # Also check page content for bond indicators
+        page_text = soup.get_text().lower()
+        if 'облигац' not in page_text and 'bond' not in page_text:
+            # Likely not a bond page
+            self.logger.debug(f"Page does not appear to be a bond (no bond keywords found)")
             return {}
 
         bond_data = {}

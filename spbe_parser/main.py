@@ -21,7 +21,7 @@ def ensure_directories():
     os.makedirs(PROSPECTUSES_DIR, exist_ok=True)
 
 
-def run_reference_data_parser(log_file: Optional[str] = None) -> tuple[bool, str]:
+def run_reference_data_parser(log_file: Optional[str] = None) -> tuple[bool, str, 'ReferenceDataParser']:
     """
     Run reference data parser
 
@@ -29,7 +29,7 @@ def run_reference_data_parser(log_file: Optional[str] = None) -> tuple[bool, str
         log_file: Optional log file path
 
     Returns:
-        Tuple of (success, output_file_path)
+        Tuple of (success, output_file_path, parser_instance)
     """
     print("\n" + "="*80)
     print("STARTING REFERENCE DATA PARSER")
@@ -47,7 +47,7 @@ def run_reference_data_parser(log_file: Optional[str] = None) -> tuple[bool, str
     else:
         print("\n✗ Reference data parser failed")
 
-    return success, output_file
+    return success, output_file, parser
 
 
 def run_foreign_prospectus_parser(bonds_list: list, log_file: Optional[str] = None) -> bool:
@@ -195,16 +195,16 @@ Examples:
 
     # Run reference data parser
     if run_ref_data:
-        success, output_file = run_reference_data_parser(log_file)
+        success, output_file, ref_parser = run_reference_data_parser(log_file)
         results['reference_data'] = success
 
-        # Load bonds list for prospectus parsers
-        if success:
-            ref_parser = ReferenceDataParser()
-            bonds_list = ref_parser.bonds_data if ref_parser.bonds_data else []
+        # Get bonds list from the parser for prospectus parsers
+        if success and ref_parser:
+            # Get the original bonds list (before filtering to only bonds)
+            bonds_list = ref_parser.get_bonds_list() if not bonds_list else bonds_list
 
     # If prospectus parsers requested but no bonds_list, fetch it
-    if (run_foreign or run_russian) and not bonds_list and not run_ref_data:
+    if (run_foreign or run_russian) and not bonds_list:
         print("\nFetching bonds list for prospectus parsers...")
         ref_parser = ReferenceDataParser(log_file=log_file)
         bonds_list = ref_parser.get_bonds_list()

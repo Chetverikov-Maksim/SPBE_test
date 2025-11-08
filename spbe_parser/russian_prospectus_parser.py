@@ -51,34 +51,86 @@ class RussianProspectusParser:
             return []
 
         issuers = []
+        seen_urls = set()
 
-        # Find all issuer links
-        # The actual selector needs to be adjusted based on the page structure
-        issuer_links = soup.find_all('a', href=re.compile(r'/issuers/[^/]+/?$'))
+        # Try multiple strategies to find issuer links
 
-        for link in issuer_links:
-            issuer_name = normalize_text(link.get_text())
-            issuer_url = urljoin(SPBE_ISSUERS_URL, link.get('href', ''))
+        # Strategy 1: Links with /company/ or similar patterns
+        patterns = [
+            r'/(company|issuer|emitent|эмитент)/[^/]+/?$',
+            r'/[^/]+/?$',  # Any link from the domain
+        ]
 
-            if issuer_name and issuer_url:
+        for pattern in patterns:
+            issuer_links = soup.find_all('a', href=re.compile(pattern))
+
+            for link in issuer_links:
+                href = link.get('href', '')
+                issuer_name = normalize_text(link.get_text())
+
+                # Skip empty names or very short names
+                if not issuer_name or len(issuer_name) < 3:
+                    continue
+
+                # Skip navigation links
+                if any(nav in issuer_name.lower() for nav in ['главная', 'home', 'login', 'search', 'о нас', 'контакты']):
+                    continue
+
+                issuer_url = urljoin(SPBE_ISSUERS_URL, href)
+
+                # Skip if already seen
+                if issuer_url in seen_urls:
+                    continue
+
+                # Skip if URL doesn't look like an issuer page
+                if '#' in issuer_url or 'javascript:' in issuer_url.lower():
+                    continue
+
                 issuers.append({
                     'name': issuer_name,
                     'url': issuer_url,
                 })
+                seen_urls.add(issuer_url)
 
-        # Alternative: look for issuer cards/blocks
+            if issuers:
+                break  # If we found issuers, stop trying other patterns
+
+        # Strategy 2: Look in list items or divs with company names
         if not issuers:
-            issuer_cards = soup.find_all(['div', 'li'], class_=re.compile(r'issuer|company', re.IGNORECASE))
-            for card in issuer_cards:
-                link = card.find('a', href=True)
-                if link:
+            self.logger.debug("Trying alternative strategy: looking for issuer blocks")
+
+            # Look for any structured list
+            for container in soup.find_all(['ul', 'ol', 'div', 'table']):
+                links = container.find_all('a', href=True)
+
+                for link in links:
+                    href = link.get('href', '')
                     issuer_name = normalize_text(link.get_text())
-                    issuer_url = urljoin(SPBE_ISSUERS_URL, link.get('href', ''))
-                    if issuer_name and issuer_url:
-                        issuers.append({
-                            'name': issuer_name,
-                            'url': issuer_url,
-                        })
+
+                    if not issuer_name or len(issuer_name) < 3:
+                        continue
+
+                    # Look for company-like names (contains LLC, JSC, etc.)
+                    if any(keyword in issuer_name.upper() for keyword in ['ООО', 'ОАО', 'ЗАО', 'ПАО', 'АО', 'LLC', 'JSC', 'INC', 'LTD']):
+                        issuer_url = urljoin(SPBE_ISSUERS_URL, href)
+
+                        if issuer_url not in seen_urls and '#' not in issuer_url:
+                            issuers.append({
+                                'name': issuer_name,
+                                'url': issuer_url,
+                            })
+                            seen_urls.add(issuer_url)
+
+        # If still no issuers found, log page structure for debugging
+        if not issuers:
+            self.logger.warning("Could not find issuers on page. Logging page structure for debugging...")
+            self.logger.debug(f"Page title: {soup.title.string if soup.title else 'No title'}")
+            self.logger.debug(f"Total links found: {len(soup.find_all('a'))}")
+
+            # Log first few links for debugging
+            all_links = soup.find_all('a', href=True)[:20]
+            for i, link in enumerate(all_links, 1):
+                self.logger.debug(f"  Link {i}: {link.get_text(strip=True)[:50]} -> {link.get('href')}")
 
         self.logger.info(f"Found {len(issuers)} issuers")
         return issuers
