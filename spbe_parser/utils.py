@@ -407,27 +407,70 @@ def extract_json_from_nextjs_html(html_content: str, logger: logging.Logger) -> 
         full_data = ''.join(matches)
         logger.debug(f"Concatenated data size: {len(full_data)} bytes")
 
-        # Look for pageData in the concatenated string
+        # Try multiple patterns to find page data
+        page_data_json = None
+        pattern_used = None
+
+        # Pattern 1: Standard Next.js pageData structure with params
         page_data_match = re.search(r'"pageData":\{(.+?)\},"params"', full_data)
+        if page_data_match:
+            pattern_used = "pageData with params"
+            page_data_json = '{' + page_data_match.group(1) + '}'
 
-        if not page_data_match:
-            logger.error("ERROR: No 'pageData' structure found in Next.js scripts")
-            logger.debug("Searching for alternative data patterns...")
+        # Pattern 2: Look for content array with pagination directly (without pageData wrapper)
+        if not page_data_json:
+            # Try to find a JSON object containing content, totalPages, and totalElements
+            content_match = re.search(
+                r'\{[^{}]*"content":\[[^\]]*?\][^{}]*?"totalPages":\d+[^{}]*?"totalElements":\d+[^{}]*?\}',
+                full_data
+            )
+            if content_match:
+                pattern_used = "content array with pagination (no pageData)"
+                page_data_json = content_match.group(0)
 
-            # Try alternative patterns
-            alt_match = re.search(r'"pageData":', full_data)
-            if alt_match:
-                logger.debug("Found 'pageData' key but structure doesn't match expected pattern")
-                logger.debug(f"Data around pageData: {full_data[max(0, alt_match.start()-100):alt_match.end()+200]}")
-            else:
-                logger.debug("No 'pageData' key found at all in the data")
+        # Pattern 3: More aggressive - find any "content" array
+        if not page_data_json:
+            if '"content":[' in full_data:
+                logger.debug("Found 'content' array, attempting to extract surrounding object")
+                content_idx = full_data.index('"content":[')
+                # Try to find the enclosing object
+                start = full_data.rfind('{', 0, content_idx)
+                if start != -1:
+                    # Simple bracket matching
+                    depth = 0
+                    for i in range(start, len(full_data)):
+                        if full_data[i] == '{':
+                            depth += 1
+                        elif full_data[i] == '}':
+                            depth -= 1
+                            if depth == 0:
+                                pattern_used = "content array (bracket matching)"
+                                page_data_json = full_data[start:i+1]
+                                break
+
+        if not page_data_json:
+            logger.error("ERROR: No 'pageData' or 'content' structure found in Next.js scripts with any pattern")
+            logger.debug("Searching for data indicators...")
+
+            # Try to find what data IS present
+            if '"content":' in full_data:
+                logger.debug("✓ Found 'content' key in data")
+                content_idx = full_data.index('"content":')
+                logger.debug(f"Data around content (300 chars): ...{full_data[max(0, content_idx-100):content_idx+200]}...")
+
+            if '"totalPages":' in full_data:
+                logger.debug("✓ Found 'totalPages' key in data")
+
+            if '"totalElements":' in full_data:
+                logger.debug("✓ Found 'totalElements' key in data")
+
+            # Show a sample of the data structure
+            logger.debug(f"Full data preview (first 1000 chars): {full_data[:1000]}")
 
             return None
 
-        logger.debug(f"Successfully found pageData match")
-
-        # Extract the pageData JSON
-        page_data_json = '{' + page_data_match.group(1) + '}'
+        logger.debug(f"Successfully found page data using pattern: {pattern_used}")
+        logger.debug(f"Extracted JSON length: {len(page_data_json)} chars")
 
         # Unescape the JSON string
         page_data_json = page_data_json.replace('\\', '')
