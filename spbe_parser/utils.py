@@ -77,9 +77,30 @@ def make_request(url: str, logger: logging.Logger, method: str = "GET", **kwargs
     Returns:
         Response object or None if all retries failed
     """
+    # Set comprehensive browser-like headers
     headers = kwargs.get('headers', {})
-    if 'User-Agent' not in headers:
-        headers['User-Agent'] = USER_AGENT
+
+    # Add all necessary headers to look like a real browser
+    default_headers = {
+        'User-Agent': USER_AGENT,
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
+        'Accept-Language': 'ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7',
+        'Accept-Encoding': 'gzip, deflate, br',
+        'DNT': '1',
+        'Connection': 'keep-alive',
+        'Upgrade-Insecure-Requests': '1',
+        'Sec-Fetch-Dest': 'document',
+        'Sec-Fetch-Mode': 'navigate',
+        'Sec-Fetch-Site': 'none',
+        'Sec-Fetch-User': '?1',
+        'Cache-Control': 'max-age=0',
+    }
+
+    # Merge with provided headers (provided headers take priority)
+    for key, value in default_headers.items():
+        if key not in headers:
+            headers[key] = value
+
     kwargs['headers'] = headers
 
     if 'timeout' not in kwargs:
@@ -89,21 +110,44 @@ def make_request(url: str, logger: logging.Logger, method: str = "GET", **kwargs
     if 'verify' not in kwargs:
         kwargs['verify'] = VERIFY_SSL
 
+    # Create session for persistent cookies
+    session = requests.Session()
+
     for attempt in range(MAX_RETRIES):
         try:
             logger.debug(f"Requesting {url} (attempt {attempt + 1}/{MAX_RETRIES})")
 
             if method.upper() == "GET":
-                response = requests.get(url, **kwargs)
+                response = session.get(url, **kwargs)
             elif method.upper() == "POST":
-                response = requests.post(url, **kwargs)
+                response = session.post(url, **kwargs)
             else:
                 logger.error(f"Unsupported HTTP method: {method}")
                 return None
 
             response.raise_for_status()
+
+            # Check if we got blocked (403 with "Access denied" or similar)
+            if response.status_code == 403 or (response.status_code == 200 and len(response.content) < 100 and b'denied' in response.content.lower()):
+                logger.warning(f"Possible access block detected (status: {response.status_code}, content length: {len(response.content)})")
+                if attempt < MAX_RETRIES - 1:
+                    time.sleep(3 * (2 ** attempt))  # Longer wait when blocked
+                    continue
+
             time.sleep(REQUEST_DELAY)
             return response
+
+        except requests.exceptions.HTTPError as e:
+            if e.response and e.response.status_code == 403:
+                logger.warning(f"403 Forbidden - Site may be blocking requests (attempt {attempt + 1}/{MAX_RETRIES})")
+            else:
+                logger.warning(f"HTTP error (attempt {attempt + 1}/{MAX_RETRIES}): {e}")
+
+            if attempt < MAX_RETRIES - 1:
+                time.sleep(3 * (2 ** attempt))
+            else:
+                logger.error(f"All retry attempts failed for {url}")
+                return None
 
         except requests.exceptions.RequestException as e:
             logger.warning(f"Request failed (attempt {attempt + 1}/{MAX_RETRIES}): {e}")
