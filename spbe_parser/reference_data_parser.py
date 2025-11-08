@@ -57,8 +57,8 @@ class ReferenceDataParser:
         self.logger.info("Fetching bonds list from SPBE using Next.js JSON extraction...")
 
         while page < max_pages:
-            # Build URL with bond filter - using securityKind parameter to filter only bonds
-            url = f"{SPBE_SECURITIES_LIST_URL}?page={page}&size=100&securityKind=Облигация"
+            # Build URL with correct parameters format
+            url = f"{SPBE_SECURITIES_LIST_URL}?page={page}&size=100&sortBy=securityKind&sortByDirection=desc"
 
             self.logger.debug(f"Fetching page {page}: {url}")
 
