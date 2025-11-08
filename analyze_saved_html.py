@@ -62,9 +62,13 @@ print(f"HTML size: {len(html)} bytes")
 
 # Check for Next.js markers
 print("\n1. Checking for Next.js markers:")
-print(f"   Contains 'self.__next_f': {('self.__next_f' in html)}")
-print(f"   Contains '__NEXT_DATA__': {('__NEXT_DATA__' in html)}")
-print(f"   Contains '<div id=\"__next\"': {('<div id=\"__next\"' in html)}")
+has_next_f = 'self.__next_f' in html
+has_next_data = '__NEXT_DATA__' in html
+next_div = '<div id="__next"'
+has_next_div = next_div in html
+print(f"   Contains 'self.__next_f': {has_next_f}")
+print(f"   Contains '__NEXT_DATA__': {has_next_data}")
+print(f"   Contains '{next_div}': {has_next_div}")
 
 # Find self.__next_f.push calls
 print("\n2. Searching for self.__next_f.push() calls...")
