@@ -104,9 +104,20 @@ REQUEST_DELAY = 1  # seconds between requests to avoid rate limiting
 MAX_RETRIES = 3
 VERIFY_SSL = False  # Set to False to disable SSL certificate verification (common for parsers)
 
+# Selenium settings (for bypassing bot protection)
+# IMPORTANT: Set to True to bypass 403 errors, requires Chrome/Chromium installed
+USE_SELENIUM = False  # Set to True to use Selenium instead of requests library
+SELENIUM_HEADLESS = True  # Run browser in headless mode (no GUI)
+SELENIUM_PAGE_LOAD_TIMEOUT = 30  # seconds to wait for page to load
+SELENIUM_IMPLICIT_WAIT = 10  # seconds for implicit waits
+
 # User agent
 USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 
 # Logging
 LOG_FORMAT = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 LOG_LEVEL = "INFO"
+
+# Debug settings
+DEBUG_SAVE_HTML = True  # Set to True to save HTML responses for debugging
+DEBUG_DIR = os.path.join(OUTPUT_DIR, "debug")
