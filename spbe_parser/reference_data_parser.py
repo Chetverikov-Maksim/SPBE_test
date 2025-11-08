@@ -20,11 +20,13 @@ from .utils import (
     setup_logger,
     make_request,
     get_soup,
+    get_html,
     normalize_text,
     parse_coupon_frequency,
     parse_boolean,
     parse_interest_payment_dates,
     extract_field_value,
+    extract_json_from_nextjs_html,
 )
 
 
@@ -43,171 +45,83 @@ class ReferenceDataParser:
 
     def get_bonds_list(self) -> List[Dict[str, str]]:
         """
-        Get list of bonds from the securities list page
+        Get list of bonds from the securities list page using Next.js JSON extraction
 
         Returns:
-            List of bonds with basic info (code, link)
+            List of bonds with basic info (code, isin, issuer_name, url)
         """
         bonds = []
         page = 0
+        max_pages = 200  # Safety limit
 
-        self.logger.info("Fetching bonds list from SPBE...")
+        self.logger.info("Fetching bonds list from SPBE using Next.js JSON extraction...")
 
-        while True:
-            # API endpoint for securities list (assuming it uses an API)
-            # We'll need to check the actual implementation
-            url = f"{SPBE_SECURITIES_LIST_URL}?page={page}&size=100"
+        while page < max_pages:
+            # Build URL with bond filter - using securityKind parameter to filter only bonds
+            url = f"{SPBE_SECURITIES_LIST_URL}?page={page}&size=100&securityKind=Облигация"
 
             self.logger.debug(f"Fetching page {page}: {url}")
 
-            # Try API approach first
-            api_url = f"{SPBE_BASE_URL}/ru/listing/securities/api/securities"
-            params = {
-                'page': page,
-                'size': 100,
-                'sortBy': 'securityKind',
-                'sortByDirection': 'desc',
-                'securityKind': 'Облигация'  # Filter for bonds
-            }
-
-            response = make_request(api_url, self.logger, params=params)
-
-            if response:
-                try:
-                    data = response.json()
-
-                    # Extract bonds from response
-                    if 'content' in data and isinstance(data['content'], list):
-                        for item in data['content']:
-                            security_code = item.get('securitySymbol', '')
-                            isin = item.get('isin', '')
-                            issuer_name = item.get('issuerName', '')
-
-                            if security_code:
-                                bond_url = f"{SPBE_BASE_URL}/listing/securities/{security_code}/"
-                                bonds.append({
-                                    'code': security_code,
-                                    'isin': isin,
-                                    'issuer_name': issuer_name,
-                                    'url': bond_url,
-                                })
-
-                        # Check if there are more pages
-                        if data.get('last', True):
-                            break
-
-                        page += 1
-                    else:
-                        self.logger.warning("Unexpected API response format")
-                        break
-
-                except (json.JSONDecodeError, KeyError) as e:
-                    self.logger.error(f"Error parsing API response: {e}")
-                    # Try HTML parsing fallback
-                    bonds = self._get_bonds_list_html()
-                    break
-            else:
-                # Fallback to HTML parsing
-                self.logger.info("API request failed, trying HTML parsing...")
-                bonds = self._get_bonds_list_html()
-                break
-
-        self.logger.info(f"Found {len(bonds)} bonds")
-        return bonds
-
-    def _get_bonds_list_html(self) -> List[Dict[str, str]]:
-        """
-        Fallback method to get bonds list from HTML with pagination
-
-        Returns:
-            List of bonds with basic info
-        """
-        bonds = []
-        seen_codes = set()
-        page = 0
-        max_pages = 100  # Safety limit
-
-        self.logger.info("Using HTML parsing to fetch bonds...")
-
-        while page < max_pages:
-            # Construct URL with page parameter
-            url = f"{SPBE_SECURITIES_LIST_URL}?page={page}&size=100"
-            self.logger.debug(f"Fetching HTML page {page}: {url}")
-
-            soup = get_soup(url, self.logger)
-
-            if not soup:
+            # Fetch HTML (uses Selenium if USE_SELENIUM is True)
+            html = get_html(url, self.logger)
+            if not html:
                 self.logger.warning(f"Failed to fetch page {page}")
                 break
 
-            # Find all security links in the table
-            # Look for table rows with security information
-            page_bonds = []
+            # Extract JSON from Next.js HTML
+            page_data = extract_json_from_nextjs_html(html, self.logger)
 
-            # Try multiple selectors to find bonds
-            # Method 1: Find all links to securities pages
-            security_links = soup.find_all('a', href=re.compile(r'/listing/securities/[A-Z0-9]+/?$'))
-
-            for link in security_links:
-                code = link.get_text(strip=True)
-                href = link.get('href', '')
-
-                # Skip if already seen
-                if code in seen_codes:
-                    continue
-
-                # Extract security code from href
-                match = re.search(r'/listing/securities/([A-Z0-9]+)/?$', href)
-                if not match:
-                    continue
-
-                security_code = match.group(1)
-                url = urljoin(SPBE_BASE_URL, href)
-
-                # Try to determine if it's a bond by looking at the row context
-                # Find parent row
-                parent_row = link.find_parent('tr')
-                is_bond = False
-
-                if parent_row:
-                    row_text = parent_row.get_text().lower()
-                    # Check if row contains "облигация" or "bond"
-                    if 'облигац' in row_text or 'bond' in row_text:
-                        is_bond = True
-                    # Check for bond patterns (usually have specific naming)
-                    elif re.search(r'(бо-|облигац)', security_code, re.IGNORECASE):
-                        is_bond = True
-                else:
-                    # If no parent row found, we'll check all securities
-                    # and filter later in parse_bond_details
-                    is_bond = True  # Assume it might be a bond
-
-                if is_bond or True:  # For now, fetch all and filter during detail parsing
-                    page_bonds.append({
-                        'code': security_code,
-                        'isin': '',
-                        'issuer_name': '',
-                        'url': url,
-                    })
-                    seen_codes.add(code)
-
-            if not page_bonds:
-                self.logger.info(f"No more securities found on page {page}, stopping pagination")
+            if not page_data:
+                self.logger.warning(f"No Next.js data found on page {page}")
                 break
 
-            bonds.extend(page_bonds)
-            self.logger.info(f"Page {page}: found {len(page_bonds)} securities (total: {len(bonds)})")
+            # Process bonds from content array
+            content = page_data.get('content', [])
+            if not content:
+                self.logger.info(f"No content found on page {page}, stopping pagination")
+                break
 
-            # Check if there's a next page
-            # Look for pagination controls
-            next_button = soup.find('a', text=re.compile(r'next|след|›|»', re.IGNORECASE))
-            if not next_button or 'disabled' in next_button.get('class', []):
-                self.logger.info("No next page found, stopping pagination")
+            page_bonds = 0
+            for item in content:
+                # Double-check that it's a bond (should be filtered by URL param already)
+                security_kind = item.get('securityKind', '')
+                if 'Облигац' not in security_kind:
+                    self.logger.debug(f"Skipping non-bond: {security_kind}")
+                    continue
+
+                # Extract bond information
+                security_code = item.get('srtsCode', '').strip()
+                isin = item.get('sisinCode', '').strip()
+                issuer_name = item.get('fullName', '').strip()
+
+                if security_code:
+                    bond_url = f"{SPBE_BASE_URL}/listing/securities/{security_code}/"
+                    bonds.append({
+                        'code': security_code,
+                        'isin': isin,
+                        'issuer_name': issuer_name,
+                        'url': bond_url,
+                    })
+                    page_bonds += 1
+                else:
+                    self.logger.warning(f"Bond without security code: {item}")
+
+            self.logger.info(f"Page {page}: found {page_bonds} bonds (total: {len(bonds)})")
+
+            # Check pagination info
+            total_pages = page_data.get('totalPages', 0)
+            total_elements = page_data.get('totalElements', 0)
+
+            self.logger.debug(f"Pagination: page {page + 1}/{total_pages}, total bonds: {total_elements}")
+
+            # Check if this is the last page
+            if page >= total_pages - 1:
+                self.logger.info(f"Reached last page ({page + 1}/{total_pages})")
                 break
 
             page += 1
 
-        self.logger.info(f"HTML parsing complete: found {len(bonds)} securities total")
+        self.logger.info(f"Found {len(bonds)} bonds in total")
         return bonds
 
     def parse_bond_details(self, bond_url: str) -> Dict[str, str]:

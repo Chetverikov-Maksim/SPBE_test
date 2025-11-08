@@ -6,6 +6,7 @@ import os
 import re
 import time
 import logging
+import json
 from typing import Optional, Dict, Any
 from pathlib import Path
 import requests
@@ -22,11 +23,132 @@ from .config import (
     COUPON_FREQUENCY_MAPPING,
     BOOLEAN_MAPPING,
     VERIFY_SSL,
+    USE_SELENIUM,
+    SELENIUM_HEADLESS,
+    SELENIUM_PAGE_LOAD_TIMEOUT,
+    SELENIUM_IMPLICIT_WAIT,
 )
 
 # Disable SSL warnings if verification is disabled
 if not VERIFY_SSL:
     urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
+# Global Selenium driver instance (lazy-loaded)
+_selenium_driver = None
+
+
+def get_selenium_driver(logger: logging.Logger):
+    """
+    Get or create Selenium WebDriver instance
+
+    Args:
+        logger: Logger instance
+
+    Returns:
+        WebDriver instance
+    """
+    global _selenium_driver
+
+    if _selenium_driver is not None:
+        return _selenium_driver
+
+    try:
+        from selenium import webdriver
+        from selenium.webdriver.chrome.service import Service
+        from selenium.webdriver.chrome.options import Options
+        from webdriver_manager.chrome import ChromeDriverManager
+
+        logger.info("Initializing Selenium WebDriver...")
+
+        # Configure Chrome options
+        chrome_options = Options()
+
+        if SELENIUM_HEADLESS:
+            chrome_options.add_argument('--headless=new')
+            logger.debug("Running Chrome in headless mode")
+
+        # Additional options to appear more like a real browser
+        chrome_options.add_argument(f'--user-agent={USER_AGENT}')
+        chrome_options.add_argument('--disable-blink-features=AutomationControlled')
+        chrome_options.add_argument('--disable-dev-shm-usage')
+        chrome_options.add_argument('--no-sandbox')
+        chrome_options.add_argument('--disable-gpu')
+        chrome_options.add_argument('--window-size=1920,1080')
+
+        # Exclude automation flags
+        chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
+        chrome_options.add_experimental_option('useAutomationExtension', False)
+
+        # Initialize driver
+        service = Service(ChromeDriverManager().install())
+        driver = webdriver.Chrome(service=service, options=chrome_options)
+
+        # Set timeouts
+        driver.set_page_load_timeout(SELENIUM_PAGE_LOAD_TIMEOUT)
+        driver.implicitly_wait(SELENIUM_IMPLICIT_WAIT)
+
+        # Execute script to hide webdriver property
+        driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
+
+        _selenium_driver = driver
+        logger.info("Selenium WebDriver initialized successfully")
+
+        return _selenium_driver
+
+    except Exception as e:
+        logger.error(f"Failed to initialize Selenium WebDriver: {e}")
+        raise
+
+
+def close_selenium_driver(logger: logging.Logger):
+    """
+    Close Selenium WebDriver instance
+
+    Args:
+        logger: Logger instance
+    """
+    global _selenium_driver
+
+    if _selenium_driver is not None:
+        try:
+            logger.info("Closing Selenium WebDriver...")
+            _selenium_driver.quit()
+            _selenium_driver = None
+            logger.info("Selenium WebDriver closed")
+        except Exception as e:
+            logger.warning(f"Error closing Selenium WebDriver: {e}")
+
+
+def fetch_with_selenium(url: str, logger: logging.Logger, wait_time: int = 3) -> Optional[str]:
+    """
+    Fetch HTML content using Selenium
+
+    Args:
+        url: URL to fetch
+        logger: Logger instance
+        wait_time: Time to wait for page to load (seconds)
+
+    Returns:
+        HTML content as string or None if failed
+    """
+    try:
+        driver = get_selenium_driver(logger)
+
+        logger.debug(f"Fetching with Selenium: {url}")
+        driver.get(url)
+
+        # Wait for page to load
+        time.sleep(wait_time)
+
+        # Get page source
+        html = driver.page_source
+
+        logger.debug(f"Successfully fetched {len(html)} bytes from {url}")
+        return html
+
+    except Exception as e:
+        logger.error(f"Selenium fetch failed for {url}: {e}")
+        return None
 
 
 def setup_logger(name: str, log_file: Optional[str] = None) -> logging.Logger:
@@ -160,6 +282,28 @@ def make_request(url: str, logger: logging.Logger, method: str = "GET", **kwargs
     return None
 
 
+def get_html(url: str, logger: logging.Logger) -> Optional[str]:
+    """
+    Get HTML content from URL (works with both Selenium and requests)
+
+    Args:
+        url: URL to fetch
+        logger: Logger instance
+
+    Returns:
+        HTML content as string or None if failed
+    """
+    if USE_SELENIUM:
+        # Use Selenium to fetch HTML
+        return fetch_with_selenium(url, logger)
+    else:
+        # Use requests library
+        response = make_request(url, logger)
+        if response:
+            return response.text
+        return None
+
+
 def get_soup(url: str, logger: logging.Logger) -> Optional[BeautifulSoup]:
     """
     Get BeautifulSoup object from URL
@@ -171,10 +315,63 @@ def get_soup(url: str, logger: logging.Logger) -> Optional[BeautifulSoup]:
     Returns:
         BeautifulSoup object or None if failed
     """
-    response = make_request(url, logger)
-    if response:
-        return BeautifulSoup(response.content, 'html.parser')
+    html = get_html(url, logger)
+    if html:
+        return BeautifulSoup(html, 'html.parser')
     return None
+
+
+def extract_json_from_nextjs_html(html_content: str, logger: logging.Logger) -> Optional[Dict[str, Any]]:
+    """
+    Extract JSON data from Next.js server-side rendered HTML
+
+    Next.js embeds data in <script> tags in the format:
+    self.__next_f.push([1,"...JSON data..."])
+
+    Args:
+        html_content: HTML content as string
+        logger: Logger instance
+
+    Returns:
+        Extracted pageData dictionary or None
+    """
+    try:
+        # Find all script tags with self.__next_f.push
+        script_pattern = r'self\.__next_f\.push\(\[1,"(.+?)"\]\)'
+        matches = re.findall(script_pattern, html_content, re.DOTALL)
+
+        if not matches:
+            logger.warning("No Next.js data found in HTML")
+            return None
+
+        # Concatenate all matched data
+        full_data = ''.join(matches)
+
+        # Look for pageData in the concatenated string
+        page_data_match = re.search(r'"pageData":\{(.+?)\},"params"', full_data)
+
+        if not page_data_match:
+            logger.warning("No pageData found in Next.js scripts")
+            return None
+
+        # Extract the pageData JSON
+        page_data_json = '{' + page_data_match.group(1) + '}'
+
+        # Unescape the JSON string
+        page_data_json = page_data_json.replace('\\', '')
+
+        # Parse JSON
+        page_data = json.loads(page_data_json)
+
+        logger.debug(f"Successfully extracted pageData with {len(page_data.get('content', []))} items")
+        return page_data
+
+    except json.JSONDecodeError as e:
+        logger.error(f"Failed to parse JSON from HTML: {e}")
+        return None
+    except Exception as e:
+        logger.error(f"Error extracting JSON from HTML: {e}")
+        return None
 
 
 def download_file(url: str, output_path: str, logger: logging.Logger, force: bool = False) -> bool:
