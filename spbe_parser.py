@@ -1,6 +1,7 @@
 """
 SPBE Reference Data Parser
 Парсер для сбора референсных данных по облигациям с сайта СПБ Биржи
+Использует Playwright + Firefox
 """
 
 import logging
@@ -8,14 +9,7 @@ import time
 import csv
 from datetime import datetime
 from typing import Dict, List, Optional
-from selenium import webdriver
-from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
-from selenium.common.exceptions import TimeoutException, NoSuchElementException
-from selenium.webdriver.chrome.options import Options
-from webdriver_manager.chrome import ChromeDriverManager
-from selenium.webdriver.chrome.service import Service
+from playwright.sync_api import sync_playwright, Page, Browser, TimeoutError as PlaywrightTimeoutError
 
 # Настройка логирования
 logging.basicConfig(
@@ -84,51 +78,38 @@ class SPBEParser:
             headless: Запускать браузер в headless режиме
         """
         self.headless = headless
-        self.driver = None
+        self.playwright = None
+        self.browser = None
+        self.page = None
 
-    def setup_driver(self):
-        """Настройка и запуск веб-драйвера"""
-        chrome_options = Options()
-        if self.headless:
-            chrome_options.add_argument('--headless')
-        chrome_options.add_argument('--no-sandbox')
-        chrome_options.add_argument('--disable-dev-shm-usage')
-        chrome_options.add_argument('--disable-gpu')
-        chrome_options.add_argument('--window-size=1920,1080')
-        chrome_options.add_argument('--disable-blink-features=AutomationControlled')
-        chrome_options.add_argument('user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36')
+    def setup_browser(self):
+        """Настройка и запуск браузера"""
+        logger.info("Запуск Firefox через Playwright...")
+        self.playwright = sync_playwright().start()
 
-        service = Service(ChromeDriverManager().install())
-        self.driver = webdriver.Chrome(service=service, options=chrome_options)
-        self.driver.implicitly_wait(10)
-        logger.info("Веб-драйвер успешно настроен")
+        self.browser = self.playwright.firefox.launch(
+            headless=self.headless,
+            args=['--no-sandbox', '--disable-dev-shm-usage']
+        )
 
-    def close_driver(self):
-        """Закрытие веб-драйвера"""
-        if self.driver:
-            self.driver.quit()
-            logger.info("Веб-драйвер закрыт")
+        self.page = self.browser.new_page(
+            user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36'
+        )
 
-    def wait_for_element(self, by: By, value: str, timeout: int = 20) -> Optional[any]:
-        """
-        Ожидание появления элемента на странице
+        # Увеличиваем таймаут по умолчанию
+        self.page.set_default_timeout(30000)
 
-        Args:
-            by: Тип поиска элемента
-            value: Значение для поиска
-            timeout: Время ожидания в секундах
+        logger.info("Браузер Firefox успешно запущен")
 
-        Returns:
-            Элемент или None
-        """
-        try:
-            element = WebDriverWait(self.driver, timeout).until(
-                EC.presence_of_element_located((by, value))
-            )
-            return element
-        except TimeoutException:
-            logger.warning(f"Элемент не найден: {by}={value}")
-            return None
+    def close_browser(self):
+        """Закрытие браузера"""
+        if self.page:
+            self.page.close()
+        if self.browser:
+            self.browser.close()
+        if self.playwright:
+            self.playwright.stop()
+        logger.info("Браузер закрыт")
 
     def get_bonds_list(self) -> List[Dict]:
         """
@@ -140,71 +121,70 @@ class SPBEParser:
         logger.info("Получение списка облигаций...")
 
         # Формируем URL с фильтром "Облигации"
-        bonds_url = f"{self.BONDS_LIST_URL}?page=0&size=10&sortBy=securityKind&sortByDirection=desc&securityKind=Облигации"
-        self.driver.get(bonds_url)
+        bonds_url = f"{self.BONDS_LIST_URL}?page=0&size=50&sortBy=securityKind&sortByDirection=desc&securityKind=Облигации"
+        self.page.goto(bonds_url, wait_until='networkidle')
 
-        time.sleep(3)  # Ждем загрузки страницы
+        time.sleep(3)  # Ждем загрузки динамического контента
 
         bonds = []
         page = 0
+        max_pages = 100  # Ограничение для безопасности
 
-        while True:
+        while page < max_pages:
             logger.info(f"Обработка страницы {page + 1}...")
 
             # Ждем загрузки таблицы
+            try:
+                self.page.wait_for_selector('a[href*="/listing/securities/card_bond/"]', timeout=10000)
+            except PlaywrightTimeoutError:
+                logger.info("Облигации не найдены на странице")
+                break
+
             time.sleep(2)
 
+            # Ищем ссылки на детальные страницы облигаций
+            bond_links = self.page.query_selector_all('a[href*="/listing/securities/card_bond/"]')
+
+            if not bond_links:
+                logger.info("Облигации не найдены на странице")
+                break
+
+            # Собираем уникальные ссылки и коды
+            page_bonds = []
+            seen_links = set()
+
+            for link in bond_links:
+                href = link.get_attribute('href')
+                if href and href not in seen_links:
+                    seen_links.add(href)
+                    # Формируем полный URL если нужно
+                    if not href.startswith('http'):
+                        href = self.BASE_URL + href
+                    # Извлекаем issue ID из URL
+                    issue_id = href.split('issue=')[-1] if 'issue=' in href else None
+                    if issue_id:
+                        page_bonds.append({
+                            'url': href,
+                            'issue_id': issue_id
+                        })
+
+            logger.info(f"Найдено облигаций на странице: {len(page_bonds)}")
+            bonds.extend(page_bonds)
+
+            # Пробуем перейти на следующую страницу
+            page += 1
+            next_url = f"{self.BONDS_LIST_URL}?page={page}&size=50&sortBy=securityKind&sortByDirection=desc&securityKind=Облигации"
+
             try:
-                # Ищем ссылки на детальные страницы облигаций
-                # На сайте ссылки на облигации имеют вид /listing/securities/card_bond/?issue=XXXX
-                bond_links = self.driver.find_elements(By.CSS_SELECTOR, 'a[href*="/listing/securities/card_bond/"]')
+                self.page.goto(next_url, wait_until='networkidle', timeout=15000)
+                time.sleep(2)
 
-                if not bond_links:
-                    logger.info("Облигации не найдены на странице")
+                # Проверяем, есть ли облигации на новой странице
+                test_links = self.page.query_selector_all('a[href*="/listing/securities/card_bond/"]')
+                if not test_links:
                     break
-
-                # Собираем уникальные ссылки и коды
-                page_bonds = []
-                seen_links = set()
-
-                for link in bond_links:
-                    href = link.get_attribute('href')
-                    if href and href not in seen_links:
-                        seen_links.add(href)
-                        # Извлекаем issue ID из URL
-                        issue_id = href.split('issue=')[-1] if 'issue=' in href else None
-                        if issue_id:
-                            page_bonds.append({
-                                'url': href,
-                                'issue_id': issue_id
-                            })
-
-                logger.info(f"Найдено облигаций на странице: {len(page_bonds)}")
-                bonds.extend(page_bonds)
-
-                # Проверяем наличие кнопки "Следующая страница"
-                try:
-                    next_button = self.driver.find_element(By.CSS_SELECTOR, 'button[aria-label*="следующая"], button[aria-label*="next"]')
-                    if next_button.is_enabled():
-                        next_button.click()
-                        time.sleep(2)
-                        page += 1
-                    else:
-                        break
-                except NoSuchElementException:
-                    # Пробуем другой способ - увеличиваем номер страницы в URL
-                    page += 1
-                    next_url = f"{self.BONDS_LIST_URL}?page={page}&size=10&sortBy=securityKind&sortByDirection=desc&securityKind=Облигации"
-                    self.driver.get(next_url)
-                    time.sleep(2)
-
-                    # Проверяем, есть ли облигации на новой странице
-                    test_links = self.driver.find_elements(By.CSS_SELECTOR, 'a[href*="/listing/securities/card_bond/"]')
-                    if not test_links:
-                        break
-
             except Exception as e:
-                logger.error(f"Ошибка при обработке страницы {page + 1}: {e}")
+                logger.info(f"Достигнут конец списка облигаций на странице {page}")
                 break
 
         logger.info(f"Всего найдено облигаций: {len(bonds)}")
@@ -222,34 +202,47 @@ class SPBEParser:
         """
         logger.info(f"Парсинг облигации: {bond_url}")
 
-        self.driver.get(bond_url)
-        time.sleep(3)  # Ждем загрузки страницы
+        try:
+            self.page.goto(bond_url, wait_until='networkidle', timeout=30000)
+        except PlaywrightTimeoutError:
+            logger.error(f"Timeout при загрузке страницы {bond_url}")
+            return {}
+
+        time.sleep(3)  # Ждем загрузки динамического контента
 
         bond_data = {}
 
         try:
+            # Ждем загрузки полей
+            self.page.wait_for_selector('li.SecuritiesField_item__7TKJg', timeout=10000)
+
             # Ищем все элементы с классом SecuritiesField_item
-            fields = self.driver.find_elements(By.CSS_SELECTOR, 'li.SecuritiesField_item__7TKJg')
+            fields = self.page.query_selector_all('li.SecuritiesField_item__7TKJg')
 
             for field in fields:
                 try:
                     # Получаем название поля
-                    title_element = field.find_element(By.CSS_SELECTOR, 'h3.SecuritiesField_itemTitle__7dfHY div')
-                    title = title_element.text.strip()
+                    title_element = field.query_selector('h3.SecuritiesField_itemTitle__7dfHY div')
+                    if not title_element:
+                        continue
+
+                    title = title_element.inner_text().strip()
 
                     # Убираем ссылки на footnotes
                     if '[' in title:
                         title = title.split('[')[0].strip()
 
                     # Получаем значение поля
-                    desc_element = field.find_element(By.CSS_SELECTOR, 'div.SecuritiesField_itemDesc__JZ7w7')
+                    desc_element = field.query_selector('div.SecuritiesField_itemDesc__JZ7w7')
+                    if not desc_element:
+                        continue
 
                     # Проверяем наличие ссылок
-                    links = desc_element.find_elements(By.TAG_NAME, 'a')
+                    links = desc_element.query_selector_all('a')
                     if links:
-                        value = ' | '.join([link.get_attribute('href') or link.text for link in links])
+                        value = ' | '.join([link.get_attribute('href') or link.inner_text() for link in links])
                     else:
-                        value = desc_element.text.strip()
+                        value = desc_element.inner_text().strip()
 
                     # Преобразуем русское название в английское
                     if title in self.FIELD_MAPPING:
@@ -287,14 +280,10 @@ class SPBEParser:
                 else:
                     bond_data['Included in the exchange index universe'] = 'No'
 
-            # Парсинг Coupon Frequency - нужно будет создать маппинг
-            # Пока оставляем как есть, позже можно будет доработать
-
-            # Парсинг Interest Payment Dates - нужно будет создать отдельное поле First Payment Date
-            # Пока оставляем как есть, позже можно будет доработать
-
             logger.info(f"Облигация успешно обработана. Получено полей: {len(bond_data)}")
 
+        except PlaywrightTimeoutError:
+            logger.error(f"Timeout при ожидании элементов на странице {bond_url}")
         except Exception as e:
             logger.error(f"Ошибка при парсинге деталей облигации: {e}")
 
@@ -307,7 +296,7 @@ class SPBEParser:
         Returns:
             Список словарей с данными всех облигаций
         """
-        self.setup_driver()
+        self.setup_browser()
 
         try:
             # Получаем список всех облигаций
@@ -333,7 +322,7 @@ class SPBEParser:
             return all_bonds_data
 
         finally:
-            self.close_driver()
+            self.close_browser()
 
     def save_to_csv(self, data: List[Dict], filename: str = None):
         """
