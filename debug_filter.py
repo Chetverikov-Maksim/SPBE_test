@@ -40,8 +40,8 @@ def debug_filter():
     time.sleep(3)
 
     # Save screenshot BEFORE clicking filter
-    page.screenshot(path='before_filter_click.png')
-    logger.info("Screenshot saved: before_filter_click.png")
+    page.screenshot(path='/home/user/SPBE_test/before_filter_click.png')
+    logger.info("Screenshot saved: /home/user/SPBE_test/before_filter_click.png")
 
     # Find and click filter button
     logger.info("\n=== Clicking filter button ===")
@@ -70,14 +70,14 @@ def debug_filter():
     time.sleep(3)
 
     # Save screenshot AFTER clicking filter
-    page.screenshot(path='after_filter_click.png')
-    logger.info("Screenshot saved: after_filter_click.png")
+    page.screenshot(path='/home/user/SPBE_test/after_filter_click.png')
+    logger.info("Screenshot saved: /home/user/SPBE_test/after_filter_click.png")
 
     # Save HTML after click
     html_content = page.content()
-    with open('after_filter_click.html', 'w', encoding='utf-8') as f:
+    with open('/home/user/SPBE_test/after_filter_click.html', 'w', encoding='utf-8') as f:
         f.write(html_content)
-    logger.info("HTML saved: after_filter_click.html")
+    logger.info("HTML saved: /home/user/SPBE_test/after_filter_click.html")
 
     # Check for modal/popup
     logger.info("\n=== Looking for modal/popup ===")
@@ -143,6 +143,46 @@ def debug_filter():
             logger.info(f"  Element {i}: visible={visible}")
     except Exception as e:
         logger.error(f"Locator error: {e}")
+
+    # Search for security type section
+    logger.info("\n=== Searching for 'Вид ценной бумаги' section ===")
+    try:
+        security_type_locator = page.locator('text="Вид ценной бумаги"')
+        count = security_type_locator.count()
+        logger.info(f"Found {count} elements with text 'Вид ценной бумаги'")
+
+        for i in range(min(count, 3)):
+            elem = security_type_locator.nth(i)
+            visible = elem.is_visible()
+            tag = elem.evaluate('el => el.tagName')
+            text = elem.inner_text()
+            logger.info(f"  Element {i}: visible={visible}, tag={tag}, text={text[:100]}")
+    except Exception as e:
+        logger.error(f"Error searching for security type: {e}")
+
+    # Look for all visible text on page
+    logger.info("\n=== Looking for all visible text containing 'бумаги' ===")
+    try:
+        all_text = page.locator('*:visible')
+        count = all_text.count()
+        logger.info(f"Total visible elements: {count}")
+
+        # Search for elements containing specific keywords
+        for keyword in ['бумаги', 'фильтр', 'Применить', 'Облигаци']:
+            keyword_locator = page.locator(f'text=/{keyword}/i')
+            keyword_count = keyword_locator.count()
+            logger.info(f"Elements containing '{keyword}': {keyword_count}")
+
+            for i in range(min(keyword_count, 3)):
+                try:
+                    elem = keyword_locator.nth(i)
+                    if elem.is_visible():
+                        text = elem.inner_text()
+                        logger.info(f"  {keyword} #{i}: {text[:80]}")
+                except:
+                    pass
+    except Exception as e:
+        logger.error(f"Error searching for keywords: {e}")
 
     # Wait a bit before closing
     logger.info("\n=== Waiting 10 seconds before closing (check the browser window) ===")
