@@ -197,14 +197,18 @@ class SPBEParser:
         while page < max_pages:
             logger.info(f"Обработка страницы {page + 1}...")
 
-            # Ищем все ссылки в таблице, которые ведут на card_bond
-            bond_links = self.page.query_selector_all('a[href*="card_bond"]')
+            # Ищем все ссылки в таблице, которые ведут на облигации
+            # Есть два типа: card_bond (иностранные) и card_bond_ru (российские)
+            bond_links_foreign = self.page.query_selector_all('a[href*="/listing/securities/card_bond/?issue="]')
+            bond_links_ru = self.page.query_selector_all('a[href*="/listing/securities/card_bond_ru/?issue="]')
+            bond_links = bond_links_foreign + bond_links_ru
+
+            logger.info(f"Найдено иностранных облигаций: {len(bond_links_foreign)}, российских: {len(bond_links_ru)}")
 
             if not bond_links:
-                logger.info("Ссылки с 'card_bond' не найдены, пробуем альтернативный метод")
-                # Ищем все ссылки с параметром issue
+                logger.info("Ссылки на облигации не найдены, пробуем альтернативный метод")
+                # Ищем все ссылки с параметром issue и фильтруем по card_bond
                 all_links = self.page.query_selector_all('a[href*="?issue="]')
-                # Фильтруем только те, которые содержат card_bond в href
                 bond_links = [link for link in all_links if 'card_bond' in (link.get_attribute('href') or '')]
 
             if not bond_links:
@@ -274,8 +278,9 @@ class SPBEParser:
                 time.sleep(3)
 
                 # Проверяем, есть ли облигации на новой странице
-                test_links = self.page.query_selector_all('a[href*="card_bond"]')
-                if not test_links:
+                test_links_foreign = self.page.query_selector_all('a[href*="/listing/securities/card_bond/?issue="]')
+                test_links_ru = self.page.query_selector_all('a[href*="/listing/securities/card_bond_ru/?issue="]')
+                if not test_links_foreign and not test_links_ru:
                     logger.info("На следующей странице облигации не найдены, завершаем")
                     break
             except Exception as e:
