@@ -172,34 +172,70 @@ class SPBEParser:
             # Ждем появления модального окна с фильтрами
             time.sleep(2)
 
-            # Ищем раздел "Вид ценной бумаги" и раскрываем его
+            # Ищем dropdown "Вид ценной бумаги"
             found_filter = False
 
-            # Способ 1: Ищем раздел "Вид ценной бумаги"
             try:
-                # Ищем заголовок раздела
-                security_type_section = self.page.locator('text="Вид ценной бумаги"').first
-                if security_type_section.is_visible(timeout=3000):
-                    logger.info("Найден раздел 'Вид ценной бумаги'")
+                # Ищем input с placeholder "Выберите вид ценной бумаги"
+                security_type_input = self.page.query_selector('input[placeholder*="Выберите вид ценной бумаги"]')
 
-                    # Пробуем кликнуть на раздел чтобы раскрыть его (если он свернут)
-                    try:
-                        security_type_section.click()
-                        logger.info("Кликнули на раздел 'Вид ценной бумаги' для раскрытия")
-                        time.sleep(1)
-                    except:
-                        logger.info("Раздел уже раскрыт или не требует раскрытия")
+                if not security_type_input:
+                    # Альтернативный поиск по классу
+                    security_type_input = self.page.query_selector('.Input_field__XIx4e')
 
-                    # Теперь ищем "Облигации" внутри этого раздела
+                if security_type_input:
+                    logger.info("Найден dropdown 'Вид ценной бумаги'")
+
+                    # Кликаем на родительский div, чтобы раскрыть dropdown
+                    parent_handle = security_type_input.evaluate_handle('element => element.closest(".Input_polygon__RXMrw")')
+                    parent_div = parent_handle.as_element()
+
+                    if parent_div:
+                        parent_div.click()
+                        logger.info("Кликнули на dropdown для раскрытия списка")
+                    else:
+                        security_type_input.click()
+                        logger.info("Кликнули на input для раскрытия списка")
+
                     time.sleep(1)
-                    облигации_label = self.page.locator('text="Облигации"').first
-                    if облигации_label.is_visible(timeout=3000):
-                        облигации_label.click()
-                        logger.info("Кликнули на фильтр 'Облигации'")
-                        found_filter = True
-                        time.sleep(2)
 
-                        # Ищем и кликаем кнопку "Применить" или "ОК" для применения фильтра
+                    # Ждем появления выпадающего списка с опциями
+                    # Ищем элемент с текстом "Облигации" в выпадающем списке
+                    try:
+                        # Пробуем найти через locator
+                        options = self.page.locator('text="Облигации"').all()
+                        logger.info(f"Найдено опций 'Облигации': {len(options)}")
+
+                        # Кликаем на первую видимую опцию
+                        for option in options:
+                            if option.is_visible():
+                                option.click()
+                                logger.info("Выбрали 'Облигации' из dropdown")
+                                found_filter = True
+                                time.sleep(2)
+                                break
+                    except Exception as e:
+                        logger.info(f"Не удалось найти опцию через locator: {e}")
+
+                        # Альтернативный метод: ищем через query_selector_all
+                        all_options = self.page.query_selector_all('[role="option"], li, div[class*="option"]')
+                        logger.info(f"Найдено элементов-опций: {len(all_options)}")
+
+                        for option_elem in all_options:
+                            try:
+                                text = option_elem.inner_text()
+                                if 'Облигаци' in text:
+                                    logger.info(f"Найдена опция с текстом: {text.strip()}")
+                                    option_elem.click()
+                                    logger.info("Выбрали 'Облигации' из списка")
+                                    found_filter = True
+                                    time.sleep(2)
+                                    break
+                            except:
+                                continue
+
+                    # Ищем и кликаем кнопку "Применить"
+                    if found_filter:
                         try:
                             apply_buttons = [
                                 'button:has-text("Применить")',
@@ -213,38 +249,17 @@ class SPBEParser:
                                     if apply_btn.is_visible(timeout=1000):
                                         apply_btn.click()
                                         logger.info(f"Кликнули кнопку применения фильтра: {btn_selector}")
+                                        time.sleep(3)
                                         break
                                 except:
                                     continue
                         except Exception as e:
-                            logger.info(f"Не нашли кнопку применения, возможно фильтр применяется автоматически: {e}")
+                            logger.info(f"Не нашли кнопку применения: {e}")
+                else:
+                    logger.warning("Не найден dropdown 'Вид ценной бумаги'")
 
-                        time.sleep(3)
             except Exception as e:
-                logger.info(f"Не удалось найти раздел 'Вид ценной бумаги': {e}")
-
-            # Способ 2: Если не нашли раздел, ищем чекбоксы напрямую
-            if not found_filter:
-                logger.info("Пробуем найти чекбокс 'Облигации' напрямую")
-                checkboxes = self.page.query_selector_all('input[type="checkbox"]')
-                logger.info(f"Найдено чекбоксов: {len(checkboxes)}")
-
-                for checkbox in checkboxes:
-                    try:
-                        # Проверяем, есть ли текст "Облигаци" рядом с чекбоксом
-                        parent_handle = checkbox.evaluate_handle('element => element.closest("label") || element.parentElement')
-                        parent_text = parent_handle.evaluate('element => element.textContent')
-
-                        if parent_text and 'Облигаци' in parent_text:
-                            logger.info(f"Найден чекбокс с текстом: {parent_text.strip()}")
-                            checkbox.click()
-                            logger.info("Применили фильтр 'Облигации'")
-                            found_filter = True
-                            time.sleep(3)
-                            break
-                    except Exception as e:
-                        logger.debug(f"Ошибка при проверке чекбокса: {e}")
-                        continue
+                logger.error(f"Ошибка при работе с dropdown: {e}")
 
             if not found_filter:
                 logger.warning("Не удалось найти и применить фильтр 'Облигации'")
