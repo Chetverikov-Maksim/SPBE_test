@@ -44,7 +44,7 @@ class SPBEParser:
         'Дата погашения': 'Maturity Date',
         'Порядок выплаты процентов': 'Coupon Frequency',
         'Даты выплаты процентов': 'Interest Payment Dates',
-        'Информация о размере текущего процента (купона) по облигациям (о порядке определения размера)': 'Current Coupon Information (calculation method)',
+        'Информация о размере текущего процента (купона) по облигациям (о порядке определения размера)': 'Current Coupon Information',
         'Сумма погашения': 'Redemption Amount',
         'Указание на наличие возможности досрочного погашения облигаций': 'Early Redemption Option',
         'Раздел Списка': 'Listing Section',
@@ -58,7 +58,7 @@ class SPBEParser:
         'Шаг цены': 'Price Tick',
         'Валюта цены': 'Price Quotation Units',
         'Валюта расчетов': 'Settlement Currency',
-        'Указание на то, что ценные бумаги ограничены в обороте (в том числе предназначены для квалифицированных инвесторов)': 'Trading Restrictions (incl. qualified investors)',
+        'Указание на то, что ценные бумаги ограничены в обороте (в том числе предназначены для квалифицированных инвесторов)': 'Trading Restrictions',
         'Указание на то, что ценные бумаги включены в базу расчета индексов организатора торговли': 'Included in the exchange index universe',
         'Полное наименование эмитента': 'Full Name Issuer',
         'Государство учреждения эмитента': 'Country Incorporation',
@@ -430,7 +430,15 @@ class SPBEParser:
                     if links:
                         value = ' | '.join([link.get_attribute('href') or link.inner_text() for link in links])
                     else:
-                        value = desc_element.inner_text().strip()
+                        # Для полей с датами используем text_content() вместо inner_text()
+                        # чтобы избежать сдвига из-за конвертации часовых поясов в JS
+                        date_fields = ['Дата выпуска', 'Дата погашения', 'Даты выплаты процентов',
+                                     'Дата принятия решения о включении ценных бумаг в Список',
+                                     'Дата включения ценных бумаг в Список', 'Дата начала организованных торгов']
+                        if title in date_fields:
+                            value = desc_element.text_content().strip()
+                        else:
+                            value = desc_element.inner_text().strip()
 
                     # Преобразуем русское название в английское
                     if title in self.FIELD_MAPPING:
@@ -454,11 +462,11 @@ class SPBEParser:
                     bond_data['Early Redemption Option'] = 'No'
 
             # Trading Restrictions: Да -> Yes, Нет -> No
-            if 'Trading Restrictions (incl. qualified investors)' in bond_data:
-                if bond_data['Trading Restrictions (incl. qualified investors)'] == 'Да':
-                    bond_data['Trading Restrictions (incl. qualified investors)'] = 'Yes'
+            if 'Trading Restrictions' in bond_data:
+                if bond_data['Trading Restrictions'] == 'Да':
+                    bond_data['Trading Restrictions'] = 'Yes'
                 else:
-                    bond_data['Trading Restrictions (incl. qualified investors)'] = 'No'
+                    bond_data['Trading Restrictions'] = 'No'
 
             # Included in the exchange index universe: Да -> Yes, Нет/нет -> No
             if 'Included in the exchange index universe' in bond_data:
@@ -548,6 +556,7 @@ class SPBEParser:
             "Security Category",
             "Security Identification Code",
             "CFI code assigned to the securities",
+            "CFI code as of the listing decision date",
             "Series Number",
             "Face Value",
             "Face Value Currency",
