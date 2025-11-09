@@ -9,6 +9,7 @@ import time
 import csv
 from datetime import datetime
 from typing import Dict, List, Optional
+from urllib.parse import quote
 from playwright.sync_api import sync_playwright, Page, Browser, TimeoutError as PlaywrightTimeoutError
 
 # Настройка логирования
@@ -125,10 +126,36 @@ class SPBEParser:
         logger.info("Получение списка облигаций...")
 
         # Формируем URL с фильтром "Облигации"
-        bonds_url = f"{self.BONDS_LIST_URL}?page=0&size=50&sortBy=securityKind&sortByDirection=desc&securityKind=Облигации"
-        self.page.goto(bonds_url, wait_until='networkidle')
+        # Пробуем с URL-кодированием кириллицы
+        filter_value = quote("Облигации")
+        bonds_url = f"{self.BONDS_LIST_URL}?page=0&size=50&sortBy=securityKind&sortByDirection=desc&securityKind={filter_value}"
+        logger.info(f"Переход на URL: {bonds_url}")
+        self.page.goto(bonds_url, wait_until='domcontentloaded')
 
-        time.sleep(3)  # Ждем загрузки динамического контента
+        # Ждем появления спиннера и затем его исчезновения
+        try:
+            # Сначала ждем появления спиннера (это значит страница начала загружаться)
+            self.page.wait_for_selector('.LoadingSpinner_root__K9Qwq', state='attached', timeout=5000)
+            logger.info("Спиннер загрузки появился")
+        except:
+            logger.info("Спиннер загрузки не появился (возможно страница уже загружена)")
+
+        # Теперь ждем исчезновения спиннера
+        try:
+            self.page.wait_for_selector('.LoadingSpinner_root__K9Qwq', state='detached', timeout=30000)
+            logger.info("Спиннер загрузки исчез")
+        except:
+            logger.warning("Спиннер не исчез в течение таймаута")
+
+        # Ждем загрузки таблицы с данными
+        try:
+            self.page.wait_for_selector('.Table_root__2EkV0', timeout=10000)
+            logger.info("Таблица найдена")
+        except:
+            logger.warning("Таблица не найдена")
+
+        # Дополнительное ожидание для полной загрузки данных
+        time.sleep(5)
 
         bonds = []
         page = 0
@@ -137,20 +164,27 @@ class SPBEParser:
         while page < max_pages:
             logger.info(f"Обработка страницы {page + 1}...")
 
-            # Ждем загрузки таблицы
-            try:
-                self.page.wait_for_selector('a[href*="/listing/securities/card_bond/"]', timeout=10000)
-            except PlaywrightTimeoutError:
-                logger.info("Облигации не найдены на странице")
-                break
-
-            time.sleep(2)
-
-            # Ищем ссылки на детальные страницы облигаций
-            bond_links = self.page.query_selector_all('a[href*="/listing/securities/card_bond/"]')
+            # Ищем все ссылки в таблице, которые ведут на card_bond
+            bond_links = self.page.query_selector_all('a[href*="card_bond"]')
 
             if not bond_links:
-                logger.info("Облигации не найдены на странице")
+                logger.info("Ссылки с 'card_bond' не найдены, пробуем альтернативный метод")
+                # Ищем все ссылки с параметром issue
+                all_links = self.page.query_selector_all('a[href*="?issue="]')
+                # Фильтруем только те, которые содержат card_bond в href
+                bond_links = [link for link in all_links if 'card_bond' in (link.get_attribute('href') or '')]
+
+            if not bond_links:
+                logger.warning("Облигации не найдены на странице. Сохраняю HTML для отладки...")
+                # Сохраняем HTML страницы для отладки
+                html_content = self.page.content()
+                with open(f'debug_page_{page}.html', 'w', encoding='utf-8') as f:
+                    f.write(html_content)
+                logger.info(f"HTML сохранен в debug_page_{page}.html")
+
+                # Также сохраним скриншот
+                self.page.screenshot(path=f'debug_page_{page}.png')
+                logger.info(f"Скриншот сохранен в debug_page_{page}.png")
                 break
 
             # Собираем уникальные ссылки и коды
@@ -165,8 +199,8 @@ class SPBEParser:
                     if not href.startswith('http'):
                         href = self.BASE_URL + href
                     # Извлекаем issue ID из URL
-                    issue_id = href.split('issue=')[-1] if 'issue=' in href else None
-                    if issue_id:
+                    issue_id = href.split('issue=')[-1].split('&')[0] if 'issue=' in href else None
+                    if issue_id and issue_id.isdigit():
                         page_bonds.append({
                             'url': href,
                             'issue_id': issue_id
@@ -177,18 +211,28 @@ class SPBEParser:
 
             # Пробуем перейти на следующую страницу
             page += 1
-            next_url = f"{self.BONDS_LIST_URL}?page={page}&size=50&sortBy=securityKind&sortByDirection=desc&securityKind=Облигации"
+            next_url = f"{self.BONDS_LIST_URL}?page={page}&size=50&sortBy=securityKind&sortByDirection=desc&securityKind={filter_value}"
+            logger.info(f"Переход на следующую страницу: {next_url}")
 
             try:
-                self.page.goto(next_url, wait_until='networkidle', timeout=15000)
-                time.sleep(2)
+                self.page.goto(next_url, wait_until='domcontentloaded', timeout=15000)
+
+                # Ждем исчезновения спиннера
+                try:
+                    self.page.wait_for_selector('.LoadingSpinner_root__K9Qwq', state='attached', timeout=3000)
+                    self.page.wait_for_selector('.LoadingSpinner_root__K9Qwq', state='detached', timeout=30000)
+                except:
+                    pass
+
+                time.sleep(3)
 
                 # Проверяем, есть ли облигации на новой странице
-                test_links = self.page.query_selector_all('a[href*="/listing/securities/card_bond/"]')
+                test_links = self.page.query_selector_all('a[href*="card_bond"]')
                 if not test_links:
+                    logger.info("На следующей странице облигации не найдены, завершаем")
                     break
             except Exception as e:
-                logger.info(f"Достигнут конец списка облигаций на странице {page}")
+                logger.info(f"Достигнут конец списка облигаций на странице {page}: {e}")
                 break
 
         logger.info(f"Всего найдено облигаций: {len(bonds)}")
