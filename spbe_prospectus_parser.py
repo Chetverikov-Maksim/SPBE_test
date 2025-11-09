@@ -56,9 +56,13 @@ class SPBEProspectusParser:
             args=['--no-sandbox', '--disable-dev-shm-usage']
         )
 
-        self.page = self.browser.new_page(
-            user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36'
+        # Создаем контекст с игнорированием SSL ошибок
+        context = self.browser.new_context(
+            user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36',
+            ignore_https_errors=True  # Игнорируем ошибки SSL сертификатов
         )
+
+        self.page = context.new_page()
 
         # Увеличиваем таймаут по умолчанию
         self.page.set_default_timeout(30000)
