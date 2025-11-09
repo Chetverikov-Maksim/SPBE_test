@@ -12,6 +12,7 @@ from datetime import datetime
 from typing import Dict, List, Optional
 from urllib.parse import quote
 from playwright.sync_api import sync_playwright, Page, Browser, TimeoutError as PlaywrightTimeoutError
+from bs4 import BeautifulSoup
 
 # Настройка логирования
 logging.basicConfig(
@@ -430,15 +431,13 @@ class SPBEParser:
                     if links:
                         value = ' | '.join([link.get_attribute('href') or link.inner_text() for link in links])
                     else:
-                        # Для полей с датами используем text_content() вместо inner_text()
-                        # чтобы избежать сдвига из-за конвертации часовых поясов в JS
-                        date_fields = ['Дата выпуска', 'Дата погашения', 'Даты выплаты процентов',
-                                     'Дата принятия решения о включении ценных бумаг в Список',
-                                     'Дата включения ценных бумаг в Список', 'Дата начала организованных торгов']
-                        if title in date_fields:
-                            value = desc_element.text_content().strip()
-                        else:
-                            value = desc_element.inner_text().strip()
+                        # Получаем innerHTML и парсим с помощью BeautifulSoup
+                        # чтобы избежать JS обработки дат (сдвиг на +1 день из-за timezone)
+                        inner_html = desc_element.inner_html()
+                        soup = BeautifulSoup(inner_html, 'html.parser')
+
+                        # Получаем чистый текст без JS обработки
+                        value = soup.get_text(strip=True)
 
                     # Преобразуем русское название в английское
                     if title in self.FIELD_MAPPING:
