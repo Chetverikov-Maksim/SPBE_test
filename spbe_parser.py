@@ -170,33 +170,68 @@ class SPBEParser:
                 logger.warning("Кнопка фильтра не найдена")
 
             # Ждем появления модального окна с фильтрами
-            time.sleep(1)
+            time.sleep(2)
 
-            # Ищем и кликаем чекбокс "Облигации"
-            # Сначала пытаемся найти текст "Облигации" и кликнуть на его родителя
+            # Ищем раздел "Вид ценной бумаги" и раскрываем его
             found_filter = False
 
-            # Способ 1: Поиск по тексту в лейбле
+            # Способ 1: Ищем раздел "Вид ценной бумаги"
             try:
-                # Ищем элемент с текстом "Облигации"
-                облигации_label = self.page.locator('text="Облигации"').first
-                if облигации_label.is_visible(timeout=3000):
-                    облигации_label.click()
-                    logger.info("Кликнули на фильтр 'Облигации' через locator")
-                    found_filter = True
-                    time.sleep(3)
-            except Exception as e:
-                logger.info(f"Не удалось найти через locator: {e}")
+                # Ищем заголовок раздела
+                security_type_section = self.page.locator('text="Вид ценной бумаги"').first
+                if security_type_section.is_visible(timeout=3000):
+                    logger.info("Найден раздел 'Вид ценной бумаги'")
 
-            # Способ 2: Поиск через чекбоксы
+                    # Пробуем кликнуть на раздел чтобы раскрыть его (если он свернут)
+                    try:
+                        security_type_section.click()
+                        logger.info("Кликнули на раздел 'Вид ценной бумаги' для раскрытия")
+                        time.sleep(1)
+                    except:
+                        logger.info("Раздел уже раскрыт или не требует раскрытия")
+
+                    # Теперь ищем "Облигации" внутри этого раздела
+                    time.sleep(1)
+                    облигации_label = self.page.locator('text="Облигации"').first
+                    if облигации_label.is_visible(timeout=3000):
+                        облигации_label.click()
+                        logger.info("Кликнули на фильтр 'Облигации'")
+                        found_filter = True
+                        time.sleep(2)
+
+                        # Ищем и кликаем кнопку "Применить" или "ОК" для применения фильтра
+                        try:
+                            apply_buttons = [
+                                'button:has-text("Применить")',
+                                'button:has-text("ОК")',
+                                'button:has-text("OK")',
+                                'button[type="submit"]'
+                            ]
+                            for btn_selector in apply_buttons:
+                                try:
+                                    apply_btn = self.page.locator(btn_selector).first
+                                    if apply_btn.is_visible(timeout=1000):
+                                        apply_btn.click()
+                                        logger.info(f"Кликнули кнопку применения фильтра: {btn_selector}")
+                                        break
+                                except:
+                                    continue
+                        except Exception as e:
+                            logger.info(f"Не нашли кнопку применения, возможно фильтр применяется автоматически: {e}")
+
+                        time.sleep(3)
+            except Exception as e:
+                logger.info(f"Не удалось найти раздел 'Вид ценной бумаги': {e}")
+
+            # Способ 2: Если не нашли раздел, ищем чекбоксы напрямую
             if not found_filter:
+                logger.info("Пробуем найти чекбокс 'Облигации' напрямую")
                 checkboxes = self.page.query_selector_all('input[type="checkbox"]')
                 logger.info(f"Найдено чекбоксов: {len(checkboxes)}")
 
                 for checkbox in checkboxes:
                     try:
                         # Проверяем, есть ли текст "Облигаци" рядом с чекбоксом
-                        # Получаем родительский элемент
                         parent_handle = checkbox.evaluate_handle('element => element.closest("label") || element.parentElement')
                         parent_text = parent_handle.evaluate('element => element.textContent')
 
