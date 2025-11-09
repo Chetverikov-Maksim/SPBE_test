@@ -7,6 +7,7 @@ SPBE Reference Data Parser
 import logging
 import time
 import csv
+import re
 from datetime import datetime
 from typing import Dict, List, Optional
 from urllib.parse import quote
@@ -467,6 +468,19 @@ class SPBEParser:
                 else:
                     bond_data['Included in the exchange index universe'] = 'No'
 
+            # Coupon: нормализация формата числа
+            if 'Coupon' in bond_data:
+                coupon_value = bond_data['Coupon']
+                # Удаляем лишние пробелы
+                coupon_value = coupon_value.strip()
+                # Заменяем запятую на точку для десятичных чисел
+                # Примеры: "5,25" -> "5.25", "10,5%" -> "10.5%"
+                coupon_value = coupon_value.replace(',', '.')
+                # Убираем пробелы между цифрами (например "5 250" -> "5250")
+                # но сохраняем пробелы между числом и текстом
+                coupon_value = re.sub(r'(\d)\s+(\d)', r'\1\2', coupon_value)
+                bond_data['Coupon'] = coupon_value
+
             logger.info(f"Облигация успешно обработана. Получено полей: {len(bond_data)}")
 
         except PlaywrightTimeoutError:
@@ -571,26 +585,21 @@ class SPBEParser:
             "Annual Reports Disclosed Issuer"
         ]
 
-        # Собираем все уникальные ключи из всех записей
-        all_keys = set()
+        # Используем только поля из ТЗ
+        fieldnames = fieldnames_order
+
+        # Заполняем отсутствующие поля значением NULL
+        normalized_data = []
         for item in data:
-            all_keys.update(item.keys())
-
-        # Используем порядок из ТЗ, добавляя в конец любые дополнительные поля
-        fieldnames = []
-        for field in fieldnames_order:
-            if field in all_keys:
-                fieldnames.append(field)
-                all_keys.remove(field)
-
-        # Добавляем оставшиеся поля (если есть) в конец
-        if all_keys:
-            fieldnames.extend(sorted(list(all_keys)))
+            normalized_item = {}
+            for field in fieldnames:
+                normalized_item[field] = item.get(field, 'NULL')
+            normalized_data.append(normalized_item)
 
         with open(filename, 'w', newline='', encoding='utf-8') as csvfile:
             writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
             writer.writeheader()
-            writer.writerows(data)
+            writer.writerows(normalized_data)
 
         logger.info(f"Данные сохранены в файл: {filename}")
         logger.info(f"Всего записей: {len(data)}")
