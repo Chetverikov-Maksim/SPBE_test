@@ -234,27 +234,33 @@ class SPBEParser:
                             except:
                                 continue
 
-                    # Ищем и кликаем кнопку "Применить"
+                    # Ищем и кликаем кнопку "Сохранить" для применения фильтра
                     if found_filter:
                         try:
                             apply_buttons = [
+                                'button:has-text("Сохранить")',
                                 'button:has-text("Применить")',
                                 'button:has-text("ОК")',
                                 'button:has-text("OK")',
                                 'button[type="submit"]'
                             ]
+                            button_clicked = False
                             for btn_selector in apply_buttons:
                                 try:
                                     apply_btn = self.page.locator(btn_selector).first
                                     if apply_btn.is_visible(timeout=1000):
                                         apply_btn.click()
                                         logger.info(f"Кликнули кнопку применения фильтра: {btn_selector}")
+                                        button_clicked = True
                                         time.sleep(3)
                                         break
                                 except:
                                     continue
+
+                            if not button_clicked:
+                                logger.warning("Не нашли кнопку 'Сохранить' или 'Применить'")
                         except Exception as e:
-                            logger.info(f"Не нашли кнопку применения: {e}")
+                            logger.error(f"Ошибка при поиске кнопки применения: {e}")
                 else:
                     logger.warning("Не найден dropdown 'Вид ценной бумаги'")
 
