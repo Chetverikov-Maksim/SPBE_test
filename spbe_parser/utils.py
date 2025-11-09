@@ -23,10 +23,15 @@ from .config import (
     COUPON_FREQUENCY_MAPPING,
     BOOLEAN_MAPPING,
     VERIFY_SSL,
+    USE_CLOUDSCRAPER,
     USE_SELENIUM,
     SELENIUM_HEADLESS,
     SELENIUM_PAGE_LOAD_TIMEOUT,
     SELENIUM_IMPLICIT_WAIT,
+    USE_PLAYWRIGHT,
+    PLAYWRIGHT_BROWSER,
+    PLAYWRIGHT_HEADLESS,
+    PLAYWRIGHT_TIMEOUT,
     DEBUG_SAVE_HTML,
     DEBUG_DIR,
 )
@@ -37,6 +42,11 @@ if not VERIFY_SSL:
 
 # Global Selenium driver instance (lazy-loaded)
 _selenium_driver = None
+
+# Global Playwright instances (lazy-loaded)
+_playwright = None
+_playwright_browser = None
+_playwright_context = None
 
 
 def get_selenium_driver(logger: logging.Logger):
@@ -121,6 +131,133 @@ def close_selenium_driver(logger: logging.Logger):
             logger.warning(f"Error closing Selenium WebDriver: {e}")
 
 
+def get_playwright_context(logger: logging.Logger):
+    """
+    Get or create Playwright browser context
+
+    Args:
+        logger: Logger instance
+
+    Returns:
+        Playwright BrowserContext instance
+    """
+    global _playwright, _playwright_browser, _playwright_context
+
+    if _playwright_context is not None:
+        return _playwright_context
+
+    try:
+        from playwright.sync_api import sync_playwright
+
+        logger.info("Initializing Playwright...")
+
+        # Start Playwright
+        _playwright = sync_playwright().start()
+
+        # Launch browser
+        browser_type = getattr(_playwright, PLAYWRIGHT_BROWSER)
+        logger.debug(f"Launching {PLAYWRIGHT_BROWSER} browser...")
+
+        _playwright_browser = browser_type.launch(
+            headless=PLAYWRIGHT_HEADLESS,
+            args=[
+                '--disable-blink-features=AutomationControlled',
+            ] if PLAYWRIGHT_BROWSER == "chromium" else []
+        )
+
+        # Create context with browser-like settings
+        _playwright_context = _playwright_browser.new_context(
+            user_agent=USER_AGENT,
+            viewport={'width': 1920, 'height': 1080},
+            locale='ru-RU',
+            timezone_id='Europe/Moscow',
+            extra_http_headers={
+                'Accept-Language': 'ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7',
+            }
+        )
+
+        # Hide webdriver property
+        _playwright_context.add_init_script("""
+            Object.defineProperty(navigator, 'webdriver', {
+                get: () => undefined
+            });
+        """)
+
+        logger.info(f"Playwright initialized successfully with {PLAYWRIGHT_BROWSER}")
+        return _playwright_context
+
+    except Exception as e:
+        logger.error(f"Failed to initialize Playwright: {e}")
+        raise
+
+
+def close_playwright(logger: logging.Logger):
+    """
+    Close Playwright browser and instances
+
+    Args:
+        logger: Logger instance
+    """
+    global _playwright, _playwright_browser, _playwright_context
+
+    try:
+        if _playwright_context is not None:
+            logger.info("Closing Playwright...")
+            _playwright_context.close()
+            _playwright_context = None
+
+        if _playwright_browser is not None:
+            _playwright_browser.close()
+            _playwright_browser = None
+
+        if _playwright is not None:
+            _playwright.stop()
+            _playwright = None
+
+        logger.info("Playwright closed")
+    except Exception as e:
+        logger.warning(f"Error closing Playwright: {e}")
+
+
+def fetch_with_playwright(url: str, logger: logging.Logger, wait_time: int = 3) -> Optional[str]:
+    """
+    Fetch HTML content using Playwright
+
+    Args:
+        url: URL to fetch
+        logger: Logger instance
+        wait_time: Time to wait for page to load (seconds)
+
+    Returns:
+        HTML content as string or None if failed
+    """
+    try:
+        context = get_playwright_context(logger)
+        page = context.new_page()
+
+        logger.debug(f"Fetching with Playwright: {url}")
+
+        # Navigate to URL
+        page.goto(url, timeout=PLAYWRIGHT_TIMEOUT, wait_until='networkidle')
+
+        # Additional wait for JavaScript to execute
+        time.sleep(wait_time)
+
+        # Get page content
+        html = page.content()
+
+        logger.debug(f"Successfully fetched {len(html)} bytes from {url}")
+
+        # Close page
+        page.close()
+
+        return html
+
+    except Exception as e:
+        logger.error(f"Playwright fetch failed for {url}: {e}")
+        return None
+
+
 def fetch_with_selenium(url: str, logger: logging.Logger, wait_time: int = 3) -> Optional[str]:
     """
     Fetch HTML content using Selenium
@@ -190,7 +327,7 @@ def setup_logger(name: str, log_file: Optional[str] = None) -> logging.Logger:
 
 def make_request(url: str, logger: logging.Logger, method: str = "GET", **kwargs) -> Optional[requests.Response]:
     """
-    Make HTTP request with retry logic
+    Make HTTP request with retry logic (supports cloudscraper for bypassing protection)
 
     Args:
         url: URL to request
@@ -234,8 +371,43 @@ def make_request(url: str, logger: logging.Logger, method: str = "GET", **kwargs
     if 'verify' not in kwargs:
         kwargs['verify'] = VERIFY_SSL
 
-    # Create session for persistent cookies
-    session = requests.Session()
+    # Use cloudscraper if enabled (bypasses Cloudflare and other protections)
+    if USE_CLOUDSCRAPER:
+        try:
+            import cloudscraper
+            import ssl
+
+            # Create SSL context that allows CERT_NONE with check_hostname disabled
+            if not VERIFY_SSL:
+                ssl_context = ssl.create_default_context()
+                ssl_context.check_hostname = False
+                ssl_context.verify_mode = ssl.CERT_NONE
+
+                # Mount adapter with custom SSL context
+                session = cloudscraper.create_scraper(
+                    browser={
+                        'browser': 'chrome',
+                        'platform': 'windows',
+                        'desktop': True
+                    },
+                    ssl_context=ssl_context
+                )
+            else:
+                session = cloudscraper.create_scraper(
+                    browser={
+                        'browser': 'chrome',
+                        'platform': 'windows',
+                        'desktop': True
+                    }
+                )
+
+            logger.debug("Using cloudscraper to bypass bot protection")
+        except ImportError:
+            logger.warning("cloudscraper not installed, falling back to regular requests")
+            session = requests.Session()
+    else:
+        # Create regular session for persistent cookies
+        session = requests.Session()
 
     for attempt in range(MAX_RETRIES):
         try:
@@ -286,7 +458,7 @@ def make_request(url: str, logger: logging.Logger, method: str = "GET", **kwargs
 
 def get_html(url: str, logger: logging.Logger) -> Optional[str]:
     """
-    Get HTML content from URL (works with both Selenium and requests)
+    Get HTML content from URL (works with Playwright, Selenium, or requests)
 
     Args:
         url: URL to fetch
@@ -296,10 +468,32 @@ def get_html(url: str, logger: logging.Logger) -> Optional[str]:
         HTML content as string or None if failed
     """
     logger.debug(f"Fetching HTML from: {url}")
-    logger.debug(f"Using {'Selenium' if USE_SELENIUM else 'requests library'}")
 
-    if USE_SELENIUM:
-        # Use Selenium to fetch HTML
+    # Determine which method to use
+    if USE_PLAYWRIGHT:
+        method = "Playwright"
+    elif USE_SELENIUM:
+        method = "Selenium"
+    else:
+        method = "requests library"
+
+    logger.debug(f"Using {method}")
+
+    # Use Playwright (preferred for modern sites)
+    if USE_PLAYWRIGHT:
+        html = fetch_with_playwright(url, logger)
+        if html:
+            logger.info(f"✓ Successfully fetched HTML via Playwright ({len(html)} bytes)")
+
+            # Save HTML for debugging if enabled
+            if DEBUG_SAVE_HTML:
+                _save_debug_html(html, url, logger)
+        else:
+            logger.error("✗ Failed to fetch HTML via Playwright")
+        return html
+
+    # Use Selenium (legacy option)
+    elif USE_SELENIUM:
         html = fetch_with_selenium(url, logger)
         if html:
             logger.info(f"✓ Successfully fetched HTML via Selenium ({len(html)} bytes)")
@@ -310,8 +504,9 @@ def get_html(url: str, logger: logging.Logger) -> Optional[str]:
         else:
             logger.error("✗ Failed to fetch HTML via Selenium")
         return html
+
+    # Use requests library (fast but may get blocked)
     else:
-        # Use requests library
         response = make_request(url, logger)
         if response:
             logger.info(f"✓ Successfully fetched HTML via requests ({len(response.text)} bytes)")
