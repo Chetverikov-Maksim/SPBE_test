@@ -125,10 +125,9 @@ class SPBEParser:
         """
         logger.info("Получение списка облигаций...")
 
-        # Формируем URL с фильтром "Облигации"
-        # Пробуем с URL-кодированием кириллицы
-        filter_value = quote("Облигации")
-        bonds_url = f"{self.BONDS_LIST_URL}?page=0&size=50&sortBy=securityKind&sortByDirection=desc&securityKind={filter_value}"
+        # Переходим на страницу списка ценных бумаг БЕЗ фильтра
+        # Фильтр применим через UI, так как URL параметры не работают
+        bonds_url = f"{self.BONDS_LIST_URL}"
         logger.info(f"Переход на URL: {bonds_url}")
         self.page.goto(bonds_url, wait_until='domcontentloaded')
 
@@ -154,7 +153,41 @@ class SPBEParser:
         except:
             logger.warning("Таблица не найдена")
 
-        # Дополнительное ожидание для полной загрузки данных
+        # Применяем фильтр "Облигации" через UI
+        try:
+            logger.info("Применяем фильтр 'Облигации' через UI...")
+
+            # Кликаем на кнопку фильтра
+            filter_button = self.page.query_selector('button svg[viewBox="0 0 20 20"] path[d*="M3.6 3h12.8"]')
+            if filter_button:
+                filter_button_parent = filter_button.evaluate('element => element.closest("button")')
+                if filter_button_parent:
+                    self.page.evaluate('element => element.click()', filter_button_parent)
+                    logger.info("Кликнули на кнопку фильтра")
+                    time.sleep(2)
+
+            # Ищем и кликаем чекбокс "Облигации"
+            # Пробуем найти текст "Облигации" и кликнуть на связанный чекбокс
+            checkboxes = self.page.query_selector_all('input[type="checkbox"]')
+            for checkbox in checkboxes:
+                # Получаем родительский элемент и ищем текст рядом
+                parent = checkbox.evaluate('element => element.closest("label") || element.parentElement')
+                if parent:
+                    parent_text = self.page.evaluate('element => element.textContent', parent)
+                    if 'Облигаци' in parent_text:
+                        logger.info(f"Найден чекбокс с текстом: {parent_text}")
+                        checkbox.check()
+                        logger.info("Применили фильтр 'Облигации'")
+                        time.sleep(3)
+                        break
+            else:
+                logger.warning("Не удалось найти чекбокс 'Облигации'")
+
+        except Exception as e:
+            logger.error(f"Ошибка при применении фильтра: {e}")
+            # Продолжаем работу, парсим что есть
+
+        # Дополнительное ожидание для полной загрузки данных после фильтрации
         time.sleep(5)
 
         bonds = []
@@ -210,14 +243,28 @@ class SPBEParser:
             bonds.extend(page_bonds)
 
             # Пробуем перейти на следующую страницу
+            # Используем клик по кнопке "следующая страница" вместо перехода по URL
             page += 1
-            next_url = f"{self.BONDS_LIST_URL}?page={page}&size=50&sortBy=securityKind&sortByDirection=desc&securityKind={filter_value}"
-            logger.info(f"Переход на следующую страницу: {next_url}")
+            logger.info(f"Переход на страницу {page + 1}...")
+
+            # Ищем и кликаем кнопку "Next"
+            next_button = self.page.query_selector('button.Pagination_paginationButtonNext__7dYko')
+            if not next_button:
+                logger.info("Кнопка 'Следующая страница' не найдена, достигнут конец списка")
+                break
+
+            # Проверяем, активна ли кнопка (не disabled)
+            is_disabled = next_button.evaluate('element => element.disabled')
+            if is_disabled:
+                logger.info("Кнопка 'Следующая страница' неактивна, достигнут конец списка")
+                break
 
             try:
-                self.page.goto(next_url, wait_until='domcontentloaded', timeout=15000)
+                # Кликаем на кнопку "Next"
+                next_button.click()
+                logger.info("Кликнули на кнопку 'Следующая страница'")
 
-                # Ждем исчезновения спиннера
+                # Ждем загрузки новых данных
                 try:
                     self.page.wait_for_selector('.LoadingSpinner_root__K9Qwq', state='attached', timeout=3000)
                     self.page.wait_for_selector('.LoadingSpinner_root__K9Qwq', state='detached', timeout=30000)
@@ -232,7 +279,7 @@ class SPBEParser:
                     logger.info("На следующей странице облигации не найдены, завершаем")
                     break
             except Exception as e:
-                logger.info(f"Достигнут конец списка облигаций на странице {page}: {e}")
+                logger.info(f"Ошибка при переходе на страницу {page}: {e}")
                 break
 
         logger.info(f"Всего найдено облигаций: {len(bonds)}")
