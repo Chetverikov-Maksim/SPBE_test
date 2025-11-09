@@ -1,0 +1,368 @@
+
+
+<!DOCTYPE html>
+<html id="main_html">
+<head>
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta charset="utf-8" />
+    <meta name="description" content="База данных юридических лиц (предприятий) России. Поиск по реквизитам." />
+    <meta name="keywords" content="скрин, национальная, ассоциация, участники, фондовый рынок, аналитика, новости, обзоры, рейтинг, акции, облигации, вексель, опцион, ценные бумаги, эмитент, эммитент, имитент, инвестор, прибыль, доход, убыток, бухгалтерская отчетность, россия, законодательство, статистика, карточка, информация, власть, экономика, политика, справка, бизнес, официальный, события, подробности, общество, промышленность, хозяйство, предприятия, регионы, отрасли, финансы, компании, российские, кредит, капитал, деньги, рубли, доллары, дивиденты, дивиденды, биржа, курсы валют, курс рубля, NYSE, NASDAQ, РТС, нефть, DJIA, DAX, Brent, Hang Seng, Bovespa, краткая справка, сравнение финансовых показателей, поиск финансовых показателей, электроэнергетика, машиностроение, металлургия, сельское хозяйство, пищевая промышленность, нефтегазовые, баланс, органы управления, квартальные отчеты, совладельцы, председатель правления, совет директоров, директор, корпоративные события, управление, дивиденды, реестр, регистратор, база данных предприятий" />
+    <meta name="yandex-verification" content="237b53ce739f509a" />
+    <title>ПАО «СПБ Биржа»</title>
+    <link href="/Content/forms.css" rel="stylesheet" />
+
+    <link href="/Content/modal_dialog.css?v=20250503_2" rel="stylesheet" />
+    <link href="/Content/iss/fontello/css/fontello.css?d=20170118" rel="stylesheet" />
+    <link href="/Content/iss/fontello/css/animation.css" rel="stylesheet" />
+
+    <link href="/Scripts/jquery364/jquery-ui.css?v=20250503" rel="stylesheet" />
+    <script src="/Scripts/jquery364/jquery-3.6.4.min.js?v=20250503"></script>
+    <script src="/Scripts/jquery364/jquery-ui-1.13.2.min.js?v=20250503"></script>
+    <script src="/Scripts/jquery364/datepicker-ru.js?v=20250503"></script>
+
+
+    <script src="/Content/bootstrap/bootstrap-5.3.2/dist/js/bootstrap.bundle.min.js?v=20250503"></script>
+    <link href="/Content/bootstrap/bootstrap-5.3.2/dist/css/bootstrap.min.css?v=20250503" rel="stylesheet" />
+    <link href="/Content/main.css?v=20250503_4" rel="stylesheet" />
+
+    
+    <link href="/Content/search.css?v=20250503_4" rel="stylesheet" />
+    <link href="/Content/tree.css?v=20250503_2" rel="stylesheet" />
+
+</head>
+<body>
+    <div id="header">
+        <a href="https://spbexchange.ru/">
+            <svg width="367" height="50" viewBox="0 0 367 50" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path d="M367 0H113.366V50H367V0Z" fill="#FF8261"></path>
+                <path d="M130.808 8.41309H165.17V15.8641H140.263V20.698H156.102C163.254 20.698 167.764 24.7312 167.764 31.1366C167.764 37.5419 163.205 41.617 156.054 41.617H130.808V8.41309ZM140.263 27.8622V34.4349H154.742C157.045 34.4349 158.242 33.3414 158.242 31.1605C158.242 28.9796 157.033 27.8861 154.742 27.8861L140.263 27.8622Z" fill="black"></path>
+                <path d="M172.993 8.41309H182.4V29.7146L202.894 8.41309H212.301V41.617H202.894V20.2738L182.4 41.617H172.993V8.41309Z" fill="black"></path>
+                <path d="M219.689 8.41309H242.584C250.836 8.41309 256.12 13.1096 256.12 20.5606C256.12 27.8622 250.739 32.5109 242.215 32.5109H229.453V41.617H219.707L219.689 8.41309ZM229.435 15.8641V25.0659H240.661C244.289 25.0659 246.181 23.5482 246.181 20.6084C246.181 17.4775 244.313 15.8641 240.661 15.8641H229.435Z" fill="black"></path>
+                <path d="M281.456 26.96L268.017 41.617H255.732L272.479 23.829L256.21 8.41309H268.21L281.456 21.8871V8.41309H291.008V21.7496L304.308 8.41907H316.254L299.986 23.602L316.738 41.623H304.447L291.014 26.733V41.623H281.462L281.456 26.96Z" fill="black"></path>
+                <path d="M347.594 35.4506H329.113L325.951 41.617H315.674L333.575 8.41309H343.508L361.408 41.617H350.756L347.594 35.4506ZM343.9 28.2804L338.381 17.5252L332.813 28.2804H343.9Z" fill="black"></path>
+                <path d="M140.97 0H0V50H140.97V0Z" fill="#E2E2E2"></path>
+                <path d="M27.1811 7.89355C38.2203 7.89355 45.3178 11.879 47.343 19.563L37.2168 21.5049C36.2072 17.5255 32.9425 15.482 27.1811 15.482C19.4066 15.482 15.6161 18.7085 15.6161 25.0422C15.6161 31.3758 19.4066 34.6024 27.1811 34.6024C33.136 34.6024 36.4007 32.565 37.2652 28.3943L47.2462 30.2884C45.3721 38.1636 38.2686 42.1968 27.1811 42.1968C13.361 42.1968 5.63477 35.5525 5.63477 25.0721C5.63477 14.5917 13.881 7.89355 27.1811 7.89355Z" fill="black"></path>
+                <path d="M52.0098 8.41309H91.2213V41.617H81.4817V16.0075H61.7552V41.617H52.0098V8.41309Z" fill="black"></path>
+                <path d="M98.6152 8.41309H132.978V15.8641H108.064V20.698H123.91C131.062 20.698 135.572 24.7312 135.572 31.1366C135.572 37.5419 131.013 41.617 123.861 41.617H98.6211L98.6152 8.41309ZM108.064 27.8622V34.4349H122.513C124.816 34.4349 126.013 33.3414 126.013 31.1605C126.013 28.9796 124.804 27.8861 122.513 27.8861L108.064 27.8622Z" fill="black"></path>
+            </svg>
+        </a>
+    </div>
+    <div id="main">
+
+
+
+
+
+
+
+<div class="sub_menu">
+    <div class="content">
+        <ul class="search_tabs">
+        </ul>
+    </div>
+
+
+
+</div>
+
+        
+
+
+
+
+<div id="search_block">
+    <div id="search_block_base">
+        <div class="content">
+            <div id="base_block">
+                <input class="search_input large" id="comp" placeholder="Наименование, ИНН, ОКПО, ОГРН, Руководитель" />
+                <button class="btns darkblue large" onclick="doSearch()">Найти</button>
+                <button class="btns grey large" onclick="doClear()">Очистить</button><br />
+            </div>
+        </div>
+    </div>
+    <div id="search_block_extended">
+        <div class="content">
+            <div id="extended_block">
+                <div class="form-group">
+                    <label for="ruler" class="label_form">Руководитель</label>
+                    <div class="sub_form">
+                        <input id="ruler" type="text" class="search_input" placeholder="Ф.И.О., ИНН" data-check="">
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label for="constitutor" class="label_form">Учредитель</label>
+                    <div class="sub_form">
+                        <input id="constitutor" type="text" class="search_input" placeholder="Ф.И.О., ИНН" data-check />
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label for="okopf" class="label_form">ОПФ</label>
+                    <div class="sub_form">
+                        <input id="okopf" type="text" class="search_input" onclick="show_okopf_selector(event)" placeholder="ОПФ" title="в соответствии с ОКОПФ - Общероссийский классификатор организационно-правовых форм" />
+                    </div>
+                    <input type="hidden" id="okopf_val" value="" data-check /><input type="hidden" id="okopf_excl" value="0" />
+                </div>
+                <div class="form-group">
+                    <label for="okfs" class="label_form">Форма собственности</label>
+                    <div class="sub_form">
+                        <input id="okfs" type="text" class="search_input" onclick="show_tree_selector(event,3,1)" placeholder="Форма собственности" title="в соответствии с ОКФС - Общероссийский классификатор форм собственности" />
+                    </div>
+                    <input type="hidden" id="okfs_val" value="" data-check /><input type="hidden" id="okfs_excl" value="0" />
+                </div>
+                <div class="form-group">
+                    <label class="label_form">Дата ОГРН</label>
+                    <div class="sub_form">
+                        <span style="padding: 0 10px 0 0;"> c </span>
+                        <input id="dfrom" type="text" class="search_input short" data-check placeholder="ДД.ММ.ГГГГ"  readonly="readonly" onclick="united_login(5);"  />
+                        <span style="padding: 0 10px;"> по </span>
+                        <input id="dto" type="text" class="search_input short" data-check placeholder="ДД.ММ.ГГГГ"  readonly="readonly" onclick="united_login(5);"  />
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label class="label_form">Дата ликвидации</label>
+                    <div class="sub_form">
+                        <span style="padding: 0 10px 0 0;"> c </span>
+                        <input id="liquidfrom" type="text" class="search_input short" data-check placeholder="ДД.ММ.ГГГГ"  readonly="readonly" onclick="united_login(5);"  />
+                        <span style="padding: 0 10px;"> по </span>
+                        <input id="liquidto" type="text" class="search_input short" data-check placeholder="ДД.ММ.ГГГГ"  readonly="readonly" onclick="united_login(5);"  />
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label for="ind" class="label_form">Отрасль</label>
+                    <div class="sub_form">
+                        <input id="ind" type="text" class="search_input" onclick="show_tree_selector(event,ind_type,1,0)" placeholder="Отрасль (ОКВЭД)" title="Общероссийский классификатор видов экономической деятельности" />
+                        <div class="form_switcher">
+                            <input type="radio" value="24" checked="checked" name="ind_type" onclick="ch_ind_type(this)" />ОКВЭД
+                            <input type="radio" value="99" name="ind_type" onclick="ch_ind_type(this)" />ОКВЭД (основной)
+                        </div>
+                        <input type="hidden" id="ind_val" data-check value="" /><input type="hidden" id="ind_excl" value="0" />
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label for="reg" class="label_form">Регион</label>
+                    <div class="sub_form">
+                        <input id="reg" type="text" class="search_input" onclick="show_tree_selector(event,reg_type,1,0)" placeholder="Регион" title="Общероссийский классификатор объектов административно-территориального деления" />
+                        <div class="form_switcher">
+                            <input type="radio" value="0" checked="checked" name="reg_type" onclick="ch_reg_type(this)" />ОКАТО
+                            <input type="radio" value="46" name="reg_type" onclick="ch_reg_type(this)" />ОКТМО
+                            <input type="radio" value="5" name="reg_type" onclick="ch_reg_type(this)" />по регистрации в налоговых органах
+                        </div>
+                    </div>
+                    <input type="hidden" id="reg_val" data-check value="" /><input type="hidden" id="reg_excl" value="0" />
+                </div>
+                <div class="form-group">
+                    <label for="addr" class="label_form">Адрес</label>
+                    <div class="sub_form">
+                        <input id="addr" type="text" class="search_input" data-check placeholder="Адрес"  readonly="readonly" onclick="united_login(5);"  />
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label class="label_form">Поиск в населенных пунктах с численностью населения</label>
+                    <div class="sub_form">
+
+                        <div class="sub_form_block">
+                            <input type="checkbox" id="city_type_1" name="city_type" value="1" data-check />от 100 тыс. до 250 тыс. человек
+                        </div>
+                        <div class="sub_form_block">
+                            <input type="checkbox" id="city_type_2" name="city_type" value="2" data-check />от 250 тыс. до 500 тыс. человек
+                        </div>
+                        <div class="sub_form_block">
+                            <input type="checkbox" id="city_type_3" name="city_type" value="3" data-check />от 500 тыс. до 1 млн. человек
+                        </div>
+                        <div class="sub_form_block">
+                            <input type="checkbox" id="city_type_4" name="city_type" value="4" data-check />от 1 млн. человек и более
+                        </div>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label for="phone" class="label_form">Телефон</label>
+                    <div class="sub_form">
+                        <input id="phone" type="text" class="search_input" data-check placeholder="Телефон (Код региона в скобках)" title="Код города нужно выделять скобками"  readonly="readonly" onclick="united_login(5);"  />
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label class="label_form"></label>
+                    <div class="sub_form">
+                        <div class="sub_form_block">
+                            <input type="checkbox" id="status" name="status" data-check value="1"  readonly="readonly" onclick="united_login(5);"  disabled=&quot;disabled&quot; />Действующие по данным ЕГРЮЛ
+                        </div>
+                        <div class="sub_form_block">
+                            <input type="checkbox" id="rgstr" name="rgstr" data-check value="1"  readonly="readonly" onclick="united_login(5);"  disabled=&quot;disabled&quot; />В реестре Росстата
+                        </div>
+                        <div class="sub_form_block">
+                            <input type="checkbox" id="gaap" name="gaap" value="1" data-check />Отчетности IAS-GAAP
+                        </div>
+                        <div class="sub_form_block">
+                            <input type="checkbox" id="rsbu" name="rsbu" value="1" data-check />Бухгалтерская отчетности по РСБУ за последний период
+                        </div>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label class="label_form">Специальный налоговый режим</label>
+                    <div class="sub_form">
+                        <div class="sub_form_block">
+                            <span class="title"><em style="right: auto;">Упрощенная система налогообложения</em><input type="checkbox" id="snr1" name="snr1" value="1" style="margin-left:0;" data-check />УСН</span>
+                            <span class="title"><em style="right: auto;">Единый сельскохозяйственный налог</em><input type="checkbox" id="snr2" name="snr2" value="1" data-check />ЕСХН</span>
+                            <span class="title"><em style="right: auto;">Единый налог на вмененный доход</em><input type="checkbox" id="snr3" name="snr3" value="1" data-check />ЕНВД</span>
+                            <span class="title"><em style="right: auto;">Режим при применении системы соглашения о разделе продукции</em><input type="checkbox" id="snr4" name="snr4" value="1" data-check />СРП</span>
+                        </div>
+                        <div class="sub_form_block">
+                            <span class="title"><input type="checkbox" id="except_snr" name="except_snr" value="1" style="margin-left:0;" data-check />Отсутствует специальный налоговый режим</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label for="fromEmployees" class="label_form">Реестры</label>
+                    <div class="sub_form">
+                        <div class="sub_form_block">
+                            <input type="checkbox" id="bankr" name="bankr" data-check value="1"  readonly="readonly" onclick="united_login(5);"  disabled=&quot;disabled&quot; />В реестре недобросовестных поставщиков
+                        </div>
+                        <div class="sub_form_block">
+                            <input type="checkbox" id="msp" name="msp" value="1" data-check />В реестре малых предприятий
+                        </div>
+                        <div class="sub_form_block">
+                            <input type="checkbox" id="strateg" name="strateg" value="1" data-check />Стратегическое предприятие
+                        </div>
+                        <div class="sub_form_block">
+                            <input type="checkbox" id="syscreator" name="syscreator" value="1" data-check />Системообразующее предприятие
+                        </div>
+                        <div class="sub_form_block">
+                            <input type="checkbox" id="branches" name="branches" value="1" data-check />Имеет иностранные представительства
+                        </div>
+                        <div class="sub_form_block">
+                            <input type="checkbox" id="exporter" name="exporter" value="1" data-check />Компания-экспортер
+                        </div>
+                        <div class="sub_form_block">
+                            <input type="checkbox" id="sanctions" name="sanctions" value="1" data-check />Находится в санкционных списках
+                        </div>
+                        <div class="sub_form_block">
+                            <input type="checkbox" id="tpp" name="tpp" value="1" data-check />В реестре членов Торгово-промышленной палаты РФ
+                        </div>
+                        <div class="sub_form_block">
+                            <input type="checkbox" id="mfo" name="mfo" value="1" data-check />Микрофинансовая организация
+                        </div>
+                        <div class="sub_form_block">
+                            <input type="checkbox" id="covidOrg" name="covidOrg" value="1" data-check />Мораторий на банкротство (в связи с COVID-19)
+                        </div>
+                        <div class="sub_form_block">
+                            <input type="checkbox" id="covidOkved" name="covidOkved" value="1" data-check />Относится к отрасли наиболее пострадавшей от COVID-19
+                        </div>
+                        <div class="sub_form_block">
+                            <input type="checkbox" id="sbr_black" name="sbr_black" value="1" data-check />Компании с выявленными признаками нелегальной <br />
+                            <span style="margin-left : 23px;">деятельности на финансовом рынке</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label for="fas" class="label_form">Лидеры рынка (по регионам)</label>
+                    <div class="sub_form">
+                        <input id="fas" type="text" class="search_input" onclick="show_tree_selector(event,9,1,1)" placeholder="Лидеры рынка (по регионам)" title="Выбор предприятий,  находящихся в  Реестре Хозяйствующих субъектов, имеющих долю на рынке выбранного региона определенного товара, работ, услуг в размере более 35%." />
+                    </div>
+                    <input type="hidden" id="fas_val" data-check value="" /><input type="hidden" id="fas_excl" value="0" />
+                </div>
+                <div class="form-group">
+                    <label for="indust_lead" class="label_form">Лидеры рынка (по отраслям)</label>
+                    <div class="sub_form">
+                        <input id="indust_lead" type="text" class="search_input" onclick="show_tree_selector(event,49,1,1)" placeholder="Лидеры рынка (по отраслям)" title="Выбор предприятий,  находящихся в  Реестре Хозяйствующих субъектов, являющиеся монополистами отрасли." />
+                    </div>
+                    <input type="hidden" id="indust_lead_val" data-check value="" /><input type="hidden" id="indust_lead_excl" value="0" />
+                </div>
+                <div class="form-group">
+                    <label class="label_form"></label>
+                    <div class="sub_form">
+                        <div class="sub_form_block">
+                            <input type="checkbox" id="filials" name="filials" value="1" data-check />Исключить представительства и филиалы
+                        </div>
+                        <div class="sub_form_block">
+                            <input type="checkbox" id="archive" name="archive" value="1"  readonly="readonly" onclick="united_login(5);"  disabled=&quot;disabled&quot; data-check />Искать в архиве
+                        </div>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label for="fromEmployees" class="label_form">Среднесписочная численность сотрудников</label>
+                    <div class="sub_form">
+                        <span style="padding: 0 0px 0 4px;">от </span>
+                        <input id="employees_from" type="text" class="search_input" style="width:80px" data-check="">
+                        <span style="padding: 0 0px 0 4px;">до </span>
+                        <input id="employees_to" type="text" class="search_input" style="width:80px" data-check="">
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label for="gropVal" class="label_form">Группы</label>
+                    <div class="sub_form">
+                        <div class="customSelect" id="groupSelect" onclick="show_groupSelector();">
+                            <span id="gropVal" class="customVal" data-check val="0">Нет</span>
+                            <span class="icon-angle-down"></span>
+                        </div>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label for="countVal" class="label_form">Выводить по</label>
+                    <div class="sub_form">
+                        <div class="customSelect" id="countSelect" onclick="show_countSelector();">
+                            <span id="countVal" class="customVal" val="30">30</span>
+                            <span class="icon-angle-down"></span>
+                        </div>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <button class="btns darkblue large" onclick="doSearch()">Найти</button>
+                    <button class="btns grey large" onclick="doClear()">Очистить</button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+<div id="result_block">
+    <div class="content">
+        <span id="total" class="total_count" style="display:none;margin-left:20px;"></span>
+        <div id="search_result" style="display:none;">
+            <div id="res_block" class="res_block">
+                <div id="export_block" class="export_block" style="display:none;"></div>
+            </div>
+        </div>
+        <div style="clear:both"></div>
+        <div id="links" class="links_empty"></div>
+    </div>
+</div>
+
+    <script>
+        $(document).ready(function () {
+            doSearch();
+        });
+    </script>
+
+    </div>
+    <div id="bottom">
+        <div class="restr_info" style="text-align : center;">Воспроизведение, перепечатка или распространение иным образом материалов данного сайта возможно только с письменного разрешения и при указании гиперссылки </div>
+
+<div class="analytics-removed-for-performance" style="display:none !important;">
+    <!-- Yandex.Metrika  -->
+</div>
+    </div>
+    <script src="/Scripts/json2.min.js"></script>
+
+
+    <script src="/Scripts/jquery364/jquery.print.min.js?v=20250503"></script>
+    <script src="/Scripts/jquery364/jquery.mask.min.js?v=20250503"></script>
+    <script src="/Scripts/lib.js?v=20250503_8"></script>
+
+    <script src="/Scripts/login_dialog.js"></script>
+    
+    <script src="/Scripts/progs2.js?v=20250503"></script>
+    <script src="/Scripts/seekEgrul.js?v20250503"></script>
+    <script src="/Scripts/issuer_list.js?v=20250503"></script>
+    <script src="/Scripts/search/companies.js?v20250503"></script>
+
+    <script>
+        var extGroupList =  [{"code":0,"txt":"Нет","val":""}];
+        var user_id=0;
+
+        var roles_object={"canExport":0,"canAddToGroup":0};
+        var group_limit=0;
+
+    </script>
+    <iframe class="service_frame" name="xls_frame" id="xls_frame" onload="hideClock();"></iframe>
+
+</body>
+</html>
