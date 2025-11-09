@@ -405,39 +405,43 @@ class SPBEParser:
             # Ждем загрузки полей
             self.page.wait_for_selector('li.SecuritiesField_item__7TKJg', timeout=10000)
 
+            # Получаем весь HTML страницы и парсим через BeautifulSoup
+            # чтобы избежать JS обработки (даты сдвигались на +1 день)
+            page_html = self.page.content()
+            soup = BeautifulSoup(page_html, 'html.parser')
+
             # Ищем все элементы с классом SecuritiesField_item
-            fields = self.page.query_selector_all('li.SecuritiesField_item__7TKJg')
+            fields = soup.find_all('li', class_='SecuritiesField_item__7TKJg')
 
             for field in fields:
                 try:
                     # Получаем название поля
-                    title_element = field.query_selector('h3.SecuritiesField_itemTitle__7dfHY div')
+                    title_element = field.find('h3', class_='SecuritiesField_itemTitle__7dfHY')
                     if not title_element:
                         continue
 
-                    title = title_element.inner_text().strip()
+                    title_div = title_element.find('div')
+                    if not title_div:
+                        continue
+
+                    title = title_div.get_text(strip=True)
 
                     # Убираем ссылки на footnotes
                     if '[' in title:
                         title = title.split('[')[0].strip()
 
                     # Получаем значение поля
-                    desc_element = field.query_selector('div.SecuritiesField_itemDesc__JZ7w7')
+                    desc_element = field.find('div', class_='SecuritiesField_itemDesc__JZ7w7')
                     if not desc_element:
                         continue
 
                     # Проверяем наличие ссылок
-                    links = desc_element.query_selector_all('a')
+                    links = desc_element.find_all('a')
                     if links:
-                        value = ' | '.join([link.get_attribute('href') or link.inner_text() for link in links])
+                        value = ' | '.join([link.get('href', '') or link.get_text(strip=True) for link in links])
                     else:
-                        # Получаем innerHTML и парсим с помощью BeautifulSoup
-                        # чтобы избежать JS обработки дат (сдвиг на +1 день из-за timezone)
-                        inner_html = desc_element.inner_html()
-                        soup = BeautifulSoup(inner_html, 'html.parser')
-
-                        # Получаем чистый текст без JS обработки
-                        value = soup.get_text(strip=True)
+                        # Получаем чистый текст из вложенного div
+                        value = desc_element.get_text(strip=True)
 
                     # Преобразуем русское название в английское
                     if title in self.FIELD_MAPPING:
