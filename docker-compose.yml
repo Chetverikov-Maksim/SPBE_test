@@ -1,0 +1,19 @@
+version: '3.8'
+
+services:
+  spbe-parser:
+    build: .
+    container_name: spbe-parser
+    volumes:
+      # Монтируем директорию для сохранения результатов
+      - ./output:/app/output
+      - ./Prospectuses:/app/Prospectuses
+    environment:
+      - PYTHONUNBUFFERED=1
+    # Пример запуска - можно переопределить через docker-compose run
+    command: --all
+
+# Примеры запуска:
+# docker-compose run spbe-parser --reference-data
+# docker-compose run spbe-parser --prospectuses
+# docker-compose run spbe-parser --all

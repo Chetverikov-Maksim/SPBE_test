@@ -12,15 +12,67 @@
 ## Требования
 
 - Python 3.8+
-- Google Chrome (для Selenium)
+- Google Chrome или Chromium (для Selenium)
+- Docker (опционально, для упрощенного запуска)
 
 ## Установка
 
-1. Установите зависимости:
+### Вариант 1: Локальная установка
+
+#### Шаг 1: Установите Google Chrome
+
+**Для Ubuntu/Debian:**
+```bash
+# Автоматическая установка с помощью скрипта
+./install_chrome.sh
+
+# Или вручную:
+wget https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb
+sudo dpkg -i google-chrome-stable_current_amd64.deb
+sudo apt-get install -f
+```
+
+**Для CentOS/RHEL/Fedora:**
+```bash
+sudo yum install -y google-chrome-stable
+```
+
+**Для macOS:**
+```bash
+brew install --cask google-chrome
+```
+
+**Для Windows:**
+Скачайте и установите Chrome с https://www.google.com/chrome/
+
+#### Шаг 2: Установите Python зависимости
 
 ```bash
 pip install -r requirements.txt
 ```
+
+### Вариант 2: Использование Docker (рекомендуется)
+
+Docker автоматически устанавливает все зависимости, включая Chrome.
+
+**Сборка образа:**
+```bash
+docker-compose build
+```
+
+**Запуск:**
+```bash
+# Оба парсера
+docker-compose run spbe-parser --all
+
+# Только референсные данные
+docker-compose run spbe-parser --reference-data
+
+# Только проспекты
+docker-compose run spbe-parser --prospectuses
+```
+
+Результаты будут сохранены в локальные папки `output/` и `Prospectuses/`.
 
 ## Использование
 
@@ -181,17 +233,67 @@ SPBE_test/
 
 ## Устранение неполадок
 
+### Ошибка "cannot find Chrome binary"
+
+Эта ошибка означает, что Google Chrome не установлен или не найден в системе.
+
+**Решение 1: Установите Chrome**
+```bash
+# Используйте скрипт автоматической установки
+./install_chrome.sh
+
+# Или установите вручную (см. секцию "Установка" выше)
+```
+
+**Решение 2: Используйте Docker**
+```bash
+docker-compose run spbe-parser --all
+```
+
+Docker уже содержит все необходимые зависимости, включая Chrome.
+
 ### Ошибка "WebDriver not found"
 
 Убедитесь, что установлен Google Chrome. Драйвер скачивается автоматически через `webdriver-manager`.
+
+Если проблема сохраняется:
+```bash
+# Очистите кэш webdriver-manager
+rm -rf ~/.wdm
+
+# Попробуйте снова
+python main.py --all
+```
 
 ### Timeout ошибки
 
 Увеличьте время ожидания в коде или проверьте интернет-соединение.
 
+Если сайт медленно отвечает, можно увеличить таймауты в файлах `spbe_parser.py` и `spbe_prospectus_parser.py`:
+- Найдите строки с `time.sleep(...)` и увеличьте значения
+- Увеличьте `timeout` параметр в методе `wait_for_element`
+
 ### Парсер не находит элементы
 
-Возможно, структура сайта изменилась. Запустите с флагом `--no-headless` для визуальной отладки.
+Возможно, структура сайта изменилась. Запустите с флагом `--no-headless` для визуальной отладки:
+
+```bash
+python main.py --all --no-headless
+```
+
+Это откроет видимое окно браузера и вы сможете увидеть, что происходит на каждом шаге.
+
+### Проблемы с правами доступа
+
+Если возникают ошибки с правами:
+
+```bash
+# Дайте права на выполнение скрипта установки
+chmod +x install_chrome.sh
+
+# Если проблемы с Selenium в Docker
+docker-compose run --user root spbe-parser --all
+```
 
 ## Автор
 
