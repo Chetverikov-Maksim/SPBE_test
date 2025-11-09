@@ -64,6 +64,7 @@ class SPBEParser:
         'Полное наименование эмитента': 'Full Name Issuer',
         'Государство учреждения эмитента': 'Country Incorporation',
         'Идентификационный номер налогоплательщика эмитента (при наличии)': 'Issuer TIN',
+        'Идентификационный номер налогоплательщика эмитента': 'Issuer TIN',  # для российских облигаций
         'Юридический адрес эмитента': 'Legal Address',
         'Информация о фактах дефолта эмитента': 'Information Issuer Default Events',
         'Информация о фактах технического дефолта эмитента': 'Information Issuer Technical Default Events',
@@ -405,9 +406,10 @@ class SPBEParser:
             # Ждем загрузки полей
             self.page.wait_for_selector('li.SecuritiesField_item__7TKJg', timeout=10000)
 
-            # Получаем весь HTML страницы и парсим через BeautifulSoup
-            # чтобы избежать JS обработки (даты сдвигались на +1 день)
-            page_html = self.page.content()
+            # Получаем весь HTML страницы напрямую из DOM через evaluate
+            # чтобы избежать JS обработки (даты сдвигались на +1 день из-за timezone)
+            # page.content() может возвращать обработанный HTML, поэтому используем evaluate
+            page_html = self.page.evaluate('() => document.documentElement.outerHTML')
             soup = BeautifulSoup(page_html, 'html.parser')
 
             # Ищем все элементы с классом SecuritiesField_item
