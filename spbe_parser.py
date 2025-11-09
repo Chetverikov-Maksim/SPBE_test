@@ -527,13 +527,65 @@ class SPBEParser:
             logger.warning("Нет данных для сохранения")
             return
 
+        # Порядок полей согласно ТЗ
+        fieldnames_order = [
+            "ISIN",
+            "Registration Number",
+            "Security Category",
+            "Security Identification Code",
+            "CFI code assigned to the securities",
+            "Series Number",
+            "Face Value",
+            "Face Value Currency",
+            "Issue Size, pcs",
+            "Issue Date",
+            "Coupon",
+            "Maturity Date",
+            "Coupon Frequency",
+            "Interest Payment Dates",
+            "Current Coupon Information",
+            "Redemption Amount",
+            "Early Redemption Option",
+            "Listing Section",
+            "Decision date to include in the List",
+            "Listing Inclusion Date",
+            "Listing Exchange",
+            "Start Date Organized Trading",
+            "Available Trading Modes",
+            "Instrument Group",
+            "Lot Size",
+            "Price Tick",
+            "Price Quotation Units",
+            "Settlement Currency",
+            "Trading Restrictions",
+            "Included in the exchange index universe",
+            "Full Name Issuer",
+            "Country Incorporation",
+            "Issuer TIN",
+            "Legal Address",
+            "Information Issuer Default Events",
+            "Information Issuer Technical Default Events",
+            "Issuer's Investor Relations Website",
+            "Foreign Exchange Disclosure Page",
+            "Competent Authority/OAM Disclosure Page",
+            "Annual Reports Disclosed Issuer"
+        ]
+
         # Собираем все уникальные ключи из всех записей
         all_keys = set()
         for item in data:
             all_keys.update(item.keys())
 
-        # Сортируем ключи для консистентности
-        fieldnames = sorted(list(all_keys))
+        # Используем порядок из ТЗ, добавляя в конец любые дополнительные поля
+        fieldnames = []
+        for field in fieldnames_order:
+            if field in all_keys:
+                fieldnames.append(field)
+                all_keys.remove(field)
+
+        # Добавляем оставшиеся поля (если есть) в конец
+        if all_keys:
+            fieldnames.extend(sorted(list(all_keys)))
 
         with open(filename, 'w', newline='', encoding='utf-8') as csvfile:
             writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
