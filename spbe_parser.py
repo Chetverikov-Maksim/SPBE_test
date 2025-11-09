@@ -157,31 +157,62 @@ class SPBEParser:
         try:
             logger.info("Применяем фильтр 'Облигации' через UI...")
 
-            # Кликаем на кнопку фильтра
-            filter_button = self.page.query_selector('button svg[viewBox="0 0 20 20"] path[d*="M3.6 3h12.8"]')
+            # Кликаем на кнопку фильтра (иконка воронки)
+            # Ищем кнопку с SVG, содержащим путь фильтра
+            filter_button_selector = 'button:has(svg path[d*="M3.6 3h12.8"])'
+            filter_button = self.page.query_selector(filter_button_selector)
+
             if filter_button:
-                filter_button_parent = filter_button.evaluate('element => element.closest("button")')
-                if filter_button_parent:
-                    self.page.evaluate('element => element.click()', filter_button_parent)
-                    logger.info("Кликнули на кнопку фильтра")
-                    time.sleep(2)
+                filter_button.click()
+                logger.info("Кликнули на кнопку фильтра")
+                time.sleep(2)
+            else:
+                logger.warning("Кнопка фильтра не найдена")
+
+            # Ждем появления модального окна с фильтрами
+            time.sleep(1)
 
             # Ищем и кликаем чекбокс "Облигации"
-            # Пробуем найти текст "Облигации" и кликнуть на связанный чекбокс
-            checkboxes = self.page.query_selector_all('input[type="checkbox"]')
-            for checkbox in checkboxes:
-                # Получаем родительский элемент и ищем текст рядом
-                parent = checkbox.evaluate('element => element.closest("label") || element.parentElement')
-                if parent:
-                    parent_text = self.page.evaluate('element => element.textContent', parent)
-                    if 'Облигаци' in parent_text:
-                        logger.info(f"Найден чекбокс с текстом: {parent_text}")
-                        checkbox.check()
-                        logger.info("Применили фильтр 'Облигации'")
-                        time.sleep(3)
-                        break
-            else:
-                logger.warning("Не удалось найти чекбокс 'Облигации'")
+            # Сначала пытаемся найти текст "Облигации" и кликнуть на его родителя
+            found_filter = False
+
+            # Способ 1: Поиск по тексту в лейбле
+            try:
+                # Ищем элемент с текстом "Облигации"
+                облигации_label = self.page.locator('text="Облигации"').first
+                if облигации_label.is_visible(timeout=3000):
+                    облигации_label.click()
+                    logger.info("Кликнули на фильтр 'Облигации' через locator")
+                    found_filter = True
+                    time.sleep(3)
+            except Exception as e:
+                logger.info(f"Не удалось найти через locator: {e}")
+
+            # Способ 2: Поиск через чекбоксы
+            if not found_filter:
+                checkboxes = self.page.query_selector_all('input[type="checkbox"]')
+                logger.info(f"Найдено чекбоксов: {len(checkboxes)}")
+
+                for checkbox in checkboxes:
+                    try:
+                        # Проверяем, есть ли текст "Облигаци" рядом с чекбоксом
+                        # Получаем родительский элемент
+                        parent_handle = checkbox.evaluate_handle('element => element.closest("label") || element.parentElement')
+                        parent_text = parent_handle.evaluate('element => element.textContent')
+
+                        if parent_text and 'Облигаци' in parent_text:
+                            logger.info(f"Найден чекбокс с текстом: {parent_text.strip()}")
+                            checkbox.click()
+                            logger.info("Применили фильтр 'Облигации'")
+                            found_filter = True
+                            time.sleep(3)
+                            break
+                    except Exception as e:
+                        logger.debug(f"Ошибка при проверке чекбокса: {e}")
+                        continue
+
+            if not found_filter:
+                logger.warning("Не удалось найти и применить фильтр 'Облигации'")
 
         except Exception as e:
             logger.error(f"Ошибка при применении фильтра: {e}")
