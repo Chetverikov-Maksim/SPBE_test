@@ -210,12 +210,18 @@ class SPBEProspectusParser:
             page_html = self.page.content()
             soup = BeautifulSoup(page_html, 'html.parser')
 
-            # Находим таблицу
-            table = soup.find('table', class_='Table_table__dOaFP')
+            # Находим таблицу (пробуем разные классы)
+            table = soup.find('table', class_='Table_display__szeQI')
+            if not table:
+                table = soup.find('table', class_='Table_table__dOaFP')
+            if not table:
+                table = soup.find('table')  # Любая таблица
 
             if not table:
                 logger.warning("Таблица не найдена в HTML")
                 return foreign_bonds
+            else:
+                logger.info(f"Таблица найдена с классом: {table.get('class')}")
 
             # Находим заголовки для определения индекса колонки
             thead = table.find('thead')
