@@ -304,16 +304,10 @@ class SPBEProspectusParser:
                             isin = link.get_text(strip=True)
 
                             if issue_id:
-                                # Получаем название эмитента из другой колонки (обычно рядом)
+                                # Получаем название эмитента из колонки 2 (индекс 2)
                                 issuer_name = None
-                                for cell in cells:
-                                    # Ищем колонку с названием эмитента
-                                    cell_text = cell.get_text(strip=True)
-                                    # Пропускаем ISIN и категорию
-                                    if cell_text and cell_text != isin and cell_text != category_text:
-                                        if len(cell_text) > 10:  # Названия эмитентов обычно длиннее
-                                            issuer_name = cell_text
-                                            break
+                                if len(cells) > 2:
+                                    issuer_name = cells[2].get_text(strip=True)
 
                                 foreign_bonds.append({
                                     'url': href,
@@ -396,9 +390,13 @@ class SPBEProspectusParser:
                             for link in links:
                                 pdf_url = link.get_attribute('href')
                                 if pdf_url and pdf_url.endswith('.pdf'):
+                                    # Преобразуем относительный URL в абсолютный
+                                    if not pdf_url.startswith('http'):
+                                        pdf_url = urljoin(self.BASE_URL, pdf_url)
+
                                     # Формируем путь для сохранения
-                                    issuer_dir = os.path.join(self.output_dir, self._sanitize_filename(bond['issuer_name']))
-                                    isin_dir = os.path.join(issuer_dir, bond['isin'])
+                                    issuer_dir = os.path.join(self.output_dir, self._sanitize_filename(issuer_name))
+                                    isin_dir = os.path.join(issuer_dir, isin)
 
                                     # Получаем имя файла из URL
                                     filename = os.path.basename(urlparse(pdf_url).path)
