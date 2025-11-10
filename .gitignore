@@ -44,6 +44,7 @@ geckodriver
 # Debug/test scripts
 check_server_response.py
 debug_date_display.py
+debug_table_structure.py
 server_response.html
 test_date_correction.py
 test_date_fix.py

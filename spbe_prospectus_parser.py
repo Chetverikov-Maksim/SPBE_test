@@ -124,124 +124,204 @@ class SPBEProspectusParser:
 
     def get_foreign_bonds(self) -> List[Dict]:
         """
-        Получение списка облигаций иностранных эмитентов
+        Получение списка облигаций иностранных эмитентов из таблицы
+
+        Фильтрует облигации по колонке "Вид, категория (тип) ценной бумаги"
+        в основной таблице, без захода на каждую страницу облигации.
 
         Returns:
             Список словарей с информацией об облигациях
         """
         logger.info("Получение списка облигаций иностранных эмитентов...")
 
-        # Формируем URL с фильтром "Облигации"
-        bonds_url = f"{self.BONDS_LIST_URL}?page=0&size=50&sortBy=securityKind&sortByDirection=desc&securityKind=Облигации"
-        self.page.goto(bonds_url, wait_until='networkidle')
+        # Переходим на страницу списка БЕЗ параметров (параметры в URL не работают)
+        bonds_url = self.BONDS_LIST_URL
+        logger.info(f"Переход на URL: {bonds_url}")
+        self.page.goto(bonds_url, wait_until='domcontentloaded')
 
+        # Ждем исчезновения спиннера
+        try:
+            self.page.wait_for_selector('.LoadingSpinner_root__K9Qwq', state='detached', timeout=30000)
+            logger.info("Спиннер загрузки исчез")
+        except:
+            logger.warning("Спиннер не исчез в течение таймаута")
+
+        # Ждем загрузки таблицы
+        try:
+            self.page.wait_for_selector('.Table_root__2EkV0', timeout=10000)
+            logger.info("Таблица найдена")
+        except:
+            logger.warning("Таблица не найдена")
+
+        # Применяем фильтр "Облигации" через UI (копия логики из spbe_parser.py)
+        try:
+            logger.info("Применяем фильтр 'Облигации' через UI...")
+
+            # Кликаем на кнопку фильтра
+            filter_button_selector = 'button:has(svg path[d*="M3.6 3h12.8"])'
+            filter_button = self.page.query_selector(filter_button_selector)
+
+            if filter_button:
+                filter_button.click()
+                logger.info("Кликнули на кнопку фильтра")
+                time.sleep(2)
+
+                # Ищем dropdown "Вид ценной бумаги"
+                security_type_input = self.page.query_selector('input[placeholder*="Выберите вид ценной бумаги"]')
+
+                if security_type_input:
+                    logger.info("Найден dropdown 'Вид ценной бумаги'")
+
+                    # Кликаем на родительский div
+                    parent_handle = security_type_input.evaluate_handle('element => element.closest(".Input_polygon__RXMrw")')
+                    parent_div = parent_handle.as_element()
+                    parent_div.click()
+                    logger.info("Кликнули на dropdown")
+                    time.sleep(1)
+
+                    # Выбираем "Облигации"
+                    options = self.page.locator('text="Облигации"').all()
+                    for option in options:
+                        if option.is_visible():
+                            option.click()
+                            logger.info("Выбрали 'Облигации' из dropdown")
+                            break
+
+                    # Кликаем "Сохранить"
+                    apply_btn = self.page.locator('button:has-text("Сохранить")').first
+                    if apply_btn.is_visible(timeout=1000):
+                        apply_btn.click()
+                        logger.info("Кликнули 'Сохранить'")
+                        time.sleep(3)
+
+        except Exception as e:
+            logger.error(f"Ошибка при применении фильтра: {e}")
+
+        # Дополнительное ожидание после фильтрации
         time.sleep(3)
 
         foreign_bonds = []
-        page = 0
-        max_pages = 100
 
-        while page < max_pages:
-            logger.info(f"Обработка страницы {page + 1}...")
-            time.sleep(2)
+        # Теперь парсим таблицу и фильтруем по колонке "Категория"
+        # Читаем все строки таблицы и ищем "иностранного эмитента"
+        try:
+            from bs4 import BeautifulSoup
 
-            try:
-                # Ждем загрузки ссылок
-                self.page.wait_for_selector('a[href*="/listing/securities/card_bond/"]', timeout=10000)
-            except PlaywrightTimeoutError:
-                logger.info("Облигации не найдены")
-                break
+            page_html = self.page.content()
+            soup = BeautifulSoup(page_html, 'html.parser')
 
-            # Ищем ссылки на детальные страницы облигаций
-            bond_links = self.page.query_selector_all('a[href*="/listing/securities/card_bond/"]')
+            # Находим таблицу
+            table = soup.find('table', class_='Table_table__dOaFP')
 
-            if not bond_links:
-                break
+            if not table:
+                logger.warning("Таблица не найдена в HTML")
+                return foreign_bonds
 
-            # Собираем уникальные ссылки
-            page_bonds = []
-            seen_links = set()
+            # Находим заголовки для определения индекса колонки
+            thead = table.find('thead')
+            headers = []
+            if thead:
+                for th in thead.find_all('th'):
+                    headers.append(th.get_text(strip=True))
 
-            for link in bond_links:
-                href = link.get_attribute('href')
-                if href and href not in seen_links:
-                    seen_links.add(href)
-                    if not href.startswith('http'):
-                        href = self.BASE_URL + href
-                    issue_id = href.split('issue=')[-1] if 'issue=' in href else None
-                    if issue_id:
-                        page_bonds.append({
-                            'url': href,
-                            'issue_id': issue_id
-                        })
+            logger.info(f"Найдено колонок в таблице: {len(headers)}")
+            if headers:
+                logger.info(f"Заголовки: {headers}")
 
-            # Проверяем каждую облигацию на соответствие критериям
-            for bond in page_bonds:
-                try:
-                    self.page.goto(bond['url'], wait_until='networkidle', timeout=30000)
-                    time.sleep(2)
-
-                    # Ждем загрузки полей
-                    self.page.wait_for_selector('li.SecuritiesField_item__7TKJg', timeout=10000)
-
-                    fields = self.page.query_selector_all('li.SecuritiesField_item__7TKJg')
-
-                    is_foreign = False
-                    issuer_name = None
-                    isin = None
-
-                    for field in fields:
-                        try:
-                            title_elem = field.query_selector('h3.SecuritiesField_itemTitle__7dfHY div')
-                            if not title_elem:
-                                continue
-
-                            title = title_elem.inner_text().strip()
-
-                            if 'Вид, категория (тип) ценной бумаги' in title:
-                                desc_elem = field.query_selector('div.SecuritiesField_itemDesc__JZ7w7')
-                                if desc_elem:
-                                    value = desc_elem.inner_text().strip()
-                                    if 'иностранного эмитента' in value:
-                                        is_foreign = True
-
-                            if 'Полное наименование эмитента' in title:
-                                desc_elem = field.query_selector('div.SecuritiesField_itemDesc__JZ7w7')
-                                if desc_elem:
-                                    issuer_name = desc_elem.inner_text().strip()
-
-                            if 'ISIN код' in title:
-                                desc_elem = field.query_selector('div.SecuritiesField_itemDesc__JZ7w7')
-                                if desc_elem:
-                                    isin = desc_elem.inner_text().strip()
-
-                        except Exception:
-                            continue
-
-                    if is_foreign and issuer_name and isin:
-                        bond['issuer_name'] = issuer_name
-                        bond['isin'] = isin
-                        foreign_bonds.append(bond)
-                        logger.info(f"Найдена иностранная облигация: {issuer_name} - {isin}")
-
-                except Exception as e:
-                    logger.warning(f"Ошибка при проверке облигации {bond['url']}: {e}")
-                    continue
-
-            # Переход на следующую страницу
-            page += 1
-            next_url = f"{self.BONDS_LIST_URL}?page={page}&size=50&sortBy=securityKind&sortByDirection=desc&securityKind=Облигации"
-
-            try:
-                self.page.goto(next_url, wait_until='networkidle', timeout=15000)
-                time.sleep(2)
-
-                # Проверяем, есть ли облигации на новой странице
-                test_links = self.page.query_selector_all('a[href*="/listing/securities/card_bond/"]')
-                if not test_links:
+            # Ищем индекс колонки с категорией
+            # Может называться "Вид, категория (тип) ценной бумаги" или просто "Категория"
+            category_idx = None
+            for idx, header in enumerate(headers):
+                if 'категория' in header.lower() or 'тип' in header.lower():
+                    category_idx = idx
+                    logger.info(f"Колонка категории найдена под индексом {idx}: '{header}'")
                     break
-            except Exception:
-                break
+
+            if category_idx is None:
+                logger.warning("Колонка с категорией не найдена")
+                # Пробуем альтернативный метод - по всем ссылкам card_bond (иностранные)
+                logger.info("Используем альтернативный метод: фильтруем по типу ссылки card_bond")
+                bond_links = self.page.query_selector_all('a[href*="/listing/securities/card_bond/?issue="]')
+
+                seen_links = set()
+                for link in bond_links:
+                    href = link.get_attribute('href')
+                    if href and href not in seen_links:
+                        seen_links.add(href)
+                        if not href.startswith('http'):
+                            href = self.BASE_URL + href
+                        issue_id = href.split('issue=')[-1] if 'issue=' in href else None
+                        if issue_id:
+                            # Извлекаем ISIN из текста ссылки
+                            isin = link.inner_text().strip() if link.inner_text() else None
+
+                            # issuer_name будет получен позже при заходе на детальную страницу
+                            foreign_bonds.append({
+                                'url': href,
+                                'issue_id': issue_id,
+                                'isin': isin,
+                                'issuer_name': None  # Будет заполнено позже
+                            })
+                            logger.info(f"Найдена иностранная облигация: {isin}")
+
+                logger.info(f"Найдено иностранных облигаций по ссылкам: {len(foreign_bonds)}")
+                return foreign_bonds
+
+            # Парсим строки таблицы
+            tbody = table.find('tbody')
+            if tbody:
+                rows = tbody.find_all('tr')
+                logger.info(f"Найдено строк в таблице: {len(rows)}")
+
+                for row in rows:
+                    cells = row.find_all('td')
+
+                    if len(cells) <= category_idx:
+                        continue
+
+                    # Проверяем категорию
+                    category_cell = cells[category_idx]
+                    category_text = category_cell.get_text(strip=True)
+
+                    # Фильтруем только "иностранного эмитента"
+                    if 'иностранного эмитента' in category_text.lower():
+                        # Ищем ссылку в этой строке
+                        link = row.find('a', href=True)
+                        if link and 'card_bond' in link['href']:
+                            href = link['href']
+                            if not href.startswith('http'):
+                                href = self.BASE_URL + href
+
+                            issue_id = href.split('issue=')[-1] if 'issue=' in href else None
+
+                            # ISIN обычно в первой колонке или в тексте ссылки
+                            isin = link.get_text(strip=True)
+
+                            if issue_id:
+                                # Получаем название эмитента из другой колонки (обычно рядом)
+                                issuer_name = None
+                                for cell in cells:
+                                    # Ищем колонку с названием эмитента
+                                    cell_text = cell.get_text(strip=True)
+                                    # Пропускаем ISIN и категорию
+                                    if cell_text and cell_text != isin and cell_text != category_text:
+                                        if len(cell_text) > 10:  # Названия эмитентов обычно длиннее
+                                            issuer_name = cell_text
+                                            break
+
+                                foreign_bonds.append({
+                                    'url': href,
+                                    'issue_id': issue_id,
+                                    'isin': isin,
+                                    'issuer_name': issuer_name,
+                                    'category': category_text
+                                })
+                                logger.info(f"Найдена иностранная облигация: {isin} ({issuer_name}) - {category_text}")
+
+        except Exception as e:
+            logger.error(f"Ошибка при парсинге таблицы: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
 
         logger.info(f"Всего найдено иностранных облигаций: {len(foreign_bonds)}")
         return foreign_bonds
@@ -256,7 +336,9 @@ class SPBEProspectusParser:
         logger.info("Скачивание проспектов для иностранных облигаций...")
 
         for i, bond in enumerate(bonds, 1):
-            logger.info(f"Обработка облигации {i}/{len(bonds)}: {bond['issuer_name']}")
+            isin = bond.get('isin', f"bond_{i}")
+            issuer_name = bond.get('issuer_name')
+            logger.info(f"Обработка облигации {i}/{len(bonds)}: {isin} ({issuer_name})")
 
             try:
                 self.page.goto(bond['url'], wait_until='networkidle', timeout=30000)
@@ -264,6 +346,27 @@ class SPBEProspectusParser:
 
                 # Ждем загрузки полей
                 self.page.wait_for_selector('li.SecuritiesField_item__7TKJg', timeout=10000)
+
+                # Если issuer_name не был получен ранее, получаем его сейчас
+                if not issuer_name:
+                    logger.info("issuer_name отсутствует, получаем из полей страницы...")
+                    fields_for_issuer = self.page.query_selector_all('li.SecuritiesField_item__7TKJg')
+                    for field in fields_for_issuer:
+                        try:
+                            title_elem = field.query_selector('h3.SecuritiesField_itemTitle__7dfHY div')
+                            if title_elem and 'Полное наименование эмитента' in title_elem.inner_text():
+                                desc_elem = field.query_selector('div.SecuritiesField_itemDesc__JZ7w7')
+                                if desc_elem:
+                                    issuer_name = desc_elem.inner_text().strip()
+                                    bond['issuer_name'] = issuer_name
+                                    logger.info(f"Получено имя эмитента: {issuer_name}")
+                                    break
+                        except:
+                            continue
+
+                    if not issuer_name:
+                        issuer_name = f"Unknown_Issuer_{isin}"
+                        logger.warning(f"Не удалось получить имя эмитента, используем: {issuer_name}")
 
                 # Ищем поле с резюме проспекта
                 fields = self.page.query_selector_all('li.SecuritiesField_item__7TKJg')
