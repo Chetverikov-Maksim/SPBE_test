@@ -8,10 +8,16 @@ import logging
 import time
 import os
 import requests
+import warnings
 from pathlib import Path
 from typing import Dict, List, Set
 from playwright.sync_api import sync_playwright, Page, Browser, TimeoutError as PlaywrightTimeoutError
 from urllib.parse import urljoin, urlparse
+
+# Отключаем SSL warnings
+warnings.filterwarnings('ignore', message='Unverified HTTPS request')
+import urllib3
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 # Настройка логирования
 logging.basicConfig(
@@ -103,7 +109,7 @@ class SPBEProspectusParser:
 
         try:
             logger.info(f"Скачивание файла: {url}")
-            response = requests.get(url, timeout=30, stream=True)
+            response = requests.get(url, timeout=30, stream=True, verify=False)
             response.raise_for_status()
 
             # Создаем директорию если не существует
