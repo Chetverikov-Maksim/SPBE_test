@@ -279,44 +279,58 @@ class SPBEProspectusParser:
                 rows = tbody.find_all('tr')
                 logger.info(f"Найдено строк в таблице: {len(rows)}")
 
-                for row in rows:
+                for row_idx, row in enumerate(rows):
                     cells = row.find_all('td')
 
                     if len(cells) <= category_idx:
+                        logger.debug(f"Строка {row_idx}: недостаточно колонок ({len(cells)})")
                         continue
 
                     # Проверяем категорию
                     category_cell = cells[category_idx]
                     category_text = category_cell.get_text(strip=True)
 
+                    logger.info(f"Строка {row_idx}: категория = '{category_text}'")
+
                     # Фильтруем только "иностранного эмитента"
                     if 'иностранного эмитента' in category_text.lower():
+                        logger.info(f"Строка {row_idx}: найдена категория 'иностранного эмитента'")
+
                         # Ищем ссылку в этой строке
                         link = row.find('a', href=True)
-                        if link and 'card_bond' in link['href']:
-                            href = link['href']
-                            if not href.startswith('http'):
-                                href = self.BASE_URL + href
+                        if link:
+                            href = link.get('href', '')
+                            logger.debug(f"Строка {row_idx}: найдена ссылка {href}")
 
-                            issue_id = href.split('issue=')[-1] if 'issue=' in href else None
+                            if 'card_bond' in href:
+                                if not href.startswith('http'):
+                                    href = self.BASE_URL + href
 
-                            # ISIN обычно в первой колонке или в тексте ссылки
-                            isin = link.get_text(strip=True)
+                                issue_id = href.split('issue=')[-1] if 'issue=' in href else None
 
-                            if issue_id:
-                                # Получаем название эмитента из колонки 2 (индекс 2)
-                                issuer_name = None
-                                if len(cells) > 2:
-                                    issuer_name = cells[2].get_text(strip=True)
+                                # ISIN обычно в первой колонке или в тексте ссылки
+                                isin = link.get_text(strip=True)
 
-                                foreign_bonds.append({
-                                    'url': href,
-                                    'issue_id': issue_id,
-                                    'isin': isin,
-                                    'issuer_name': issuer_name,
-                                    'category': category_text
-                                })
-                                logger.info(f"Найдена иностранная облигация: {isin} ({issuer_name}) - {category_text}")
+                                if issue_id:
+                                    # Получаем название эмитента из колонки 2 (индекс 2)
+                                    issuer_name = None
+                                    if len(cells) > 2:
+                                        issuer_name = cells[2].get_text(strip=True)
+
+                                    foreign_bonds.append({
+                                        'url': href,
+                                        'issue_id': issue_id,
+                                        'isin': isin,
+                                        'issuer_name': issuer_name,
+                                        'category': category_text
+                                    })
+                                    logger.info(f"Найдена иностранная облигация: {isin} ({issuer_name}) - {category_text}")
+                                else:
+                                    logger.warning(f"Строка {row_idx}: issue_id не найден в {href}")
+                            else:
+                                logger.debug(f"Строка {row_idx}: ссылка не содержит 'card_bond': {href}")
+                        else:
+                            logger.warning(f"Строка {row_idx}: ссылка не найдена в строке с категорией 'иностранного эмитента'")
 
         except Exception as e:
             logger.error(f"Ошибка при парсинге таблицы: {e}")
