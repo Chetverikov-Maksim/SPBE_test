@@ -92,11 +92,23 @@ class SPBEParser:
         logger.info("Запуск Chromium через Playwright...")
         self.playwright = sync_playwright().start()
 
-        # Используем regular Chromium с дополнительными флагами для стабильности
-        self.browser = self.playwright.chromium.launch(
-            headless=True,
-            executable_path='/root/.cache/ms-playwright/chromium-1194/chrome-linux/chrome',
-            args=[
+        # Пытаемся найти установленный браузер
+        possible_paths = [
+            os.path.expanduser('~/.cache/ms-playwright/chromium-1194/chrome-linux/chrome'),
+            '/root/.cache/ms-playwright/chromium-1194/chrome-linux/chrome',
+        ]
+
+        chromium_path = None
+        for path in possible_paths:
+            if os.path.exists(path):
+                chromium_path = path
+                logger.info(f"Найден Chromium: {chromium_path}")
+                break
+
+        # Аргументы для стабильности
+        launch_args = {
+            'headless': True,
+            'args': [
                 '--no-sandbox',
                 '--disable-dev-shm-usage',
                 '--disable-gpu',
@@ -104,7 +116,13 @@ class SPBEParser:
                 '--disable-extensions',
                 '--disable-setuid-sandbox'
             ]
-        )
+        }
+
+        # Если нашли браузер, используем его путь
+        if chromium_path:
+            launch_args['executable_path'] = chromium_path
+
+        self.browser = self.playwright.chromium.launch(**launch_args)
 
         # Создаем контекст с игнорированием SSL ошибок и Moscow timezone
         # СПБ Биржа находится в Санкт-Петербурге/Москве (Europe/Moscow, UTC+3)
