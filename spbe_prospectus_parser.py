@@ -648,37 +648,47 @@ class SPBEProspectusParser:
                     logger.warning(f"Ошибка при клике на 'Показать аннулированные': {e}")
 
                 # Получаем список облигаций из таблицы
-                # Ищем ссылки на "Государственный регистрационный номер"
+                # Ищем колонку с "Государственный регистрационный номер"
                 try:
-                    # Пробуем разные селекторы для поиска регистрационных номеров
-                    # По HTML: <td class="ahref" onclick=" ShowAction('...','alrs',event) ">4B02-03-40046-N-001P</td>
+                    # Шаг 1: Найдём индекс колонки с "Государственный регистрационный номер"
+                    headers = self.page.query_selector_all('div#tab_content th')
+                    logger.info(f"Найдено заголовков таблицы: {len(headers)}")
 
-                    # Вариант 1: td с классом ahref и onclick внутри div#tab_content
-                    reg_number_cells = self.page.query_selector_all('div#tab_content td.ahref[onclick]')
+                    reg_number_col_index = -1
+                    for idx, header in enumerate(headers):
+                        header_text = header.inner_text().strip()
+                        logger.info(f"  Колонка {idx}: '{header_text}'")
+                        if 'Государственный регистрационный номер' in header_text or 'гос' in header_text.lower() and 'рег' in header_text.lower():
+                            reg_number_col_index = idx
+                            logger.info(f"Найдена колонка с регистрационными номерами: индекс {idx}")
+                            break
 
-                    if not reg_number_cells:
-                        # Вариант 2: любые td с классом ahref
-                        reg_number_cells = self.page.query_selector_all('td.ahref')
-                        logger.info(f"Используем вариант 2: td.ahref, найдено {len(reg_number_cells)}")
+                    if reg_number_col_index == -1:
+                        logger.warning("Не найдена колонка 'Государственный регистрационный номер'")
+                        # Попробуем старый метод
+                        reg_number_cells = self.page.query_selector_all('div#tab_content td.ahref[onclick]')
+                        if not reg_number_cells:
+                            reg_number_cells = self.page.query_selector_all('td.ahref')
+                        if not reg_number_cells:
+                            reg_number_cells = self.page.query_selector_all('td[onclick*="ShowAction"]')
+                        logger.info(f"Используем старый метод, найдено: {len(reg_number_cells)}")
+                    else:
+                        # Шаг 2: Найдём все строки таблицы
+                        rows = self.page.query_selector_all('div#tab_content tbody tr')
+                        logger.info(f"Найдено строк в таблице: {len(rows)}")
 
-                    if not reg_number_cells:
-                        # Вариант 3: любые td с onclick содержащим ShowAction
-                        reg_number_cells = self.page.query_selector_all('td[onclick]')
-                        logger.info(f"Используем вариант 3: td[onclick], найдено {len(reg_number_cells)}")
-
-                    # Отладка: сохраним HTML страницы если не нашли
-                    if not reg_number_cells:
-                        page_html = self.page.content()
-                        logger.warning(f"Не найдены регистрационные номера. HTML длина: {len(page_html)}")
-                        # Проверяем, есть ли div#tab_content
-                        tab_content = self.page.query_selector('div#tab_content')
-                        if tab_content:
-                            logger.info("div#tab_content найден")
-                            # Проверяем таблицы
-                            tables = self.page.query_selector_all('div#tab_content table')
-                            logger.info(f"Найдено таблиц в tab_content: {len(tables)}")
-                        else:
-                            logger.warning("div#tab_content НЕ найден!")
+                        reg_number_cells = []
+                        for row in rows:
+                            # Получаем все ячейки в строке
+                            cells = row.query_selector_all('td')
+                            # Берём ячейку с нужным индексом
+                            if len(cells) > reg_number_col_index:
+                                reg_cell = cells[reg_number_col_index]
+                                # Проверяем, что ячейка кликабельная (имеет onclick или класс ahref)
+                                onclick = reg_cell.get_attribute('onclick')
+                                class_name = reg_cell.get_attribute('class') or ''
+                                if onclick or 'ahref' in class_name:
+                                    reg_number_cells.append(reg_cell)
 
                     logger.info(f"Найдено облигаций для {issuer_name}: {len(reg_number_cells)}")
 
