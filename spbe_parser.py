@@ -97,10 +97,12 @@ class SPBEParser:
             args=['--no-sandbox', '--disable-dev-shm-usage']
         )
 
-        # Создаем контекст с игнорированием SSL ошибок
+        # Создаем контекст с игнорированием SSL ошибок и UTC timezone
         context = self.browser.new_context(
             user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36',
-            ignore_https_errors=True  # Игнорируем ошибки SSL сертификатов
+            ignore_https_errors=True,  # Игнорируем ошибки SSL сертификатов
+            timezone_id='UTC',  # Устанавливаем UTC timezone чтобы избежать конвертации дат
+            locale='en-US'
         )
 
         self.page = context.new_page()
