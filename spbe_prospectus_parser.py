@@ -79,17 +79,15 @@ class SPBEProspectusParser:
                     logger.info(f"Найден Chromium: {chromium_path}")
                     break
 
-            # Используем Chromium с минимальными зависимостями
+            # Используем Chromium с антидетектом
             launch_args = {
                 'headless': self.headless,
                 'args': [
                     '--no-sandbox',
                     '--disable-dev-shm-usage',
+                    '--disable-blink-features=AutomationControlled',  # Скрываем признак автоматизации
                     '--disable-gpu',
-                    '--disable-software-rasterizer',
-                    '--disable-extensions',
-                    '--single-process',  # Предотвращаем крэши в headless режиме
-                    '--no-zygote'
+                    '--disable-software-rasterizer'
                 ]
             }
             if chromium_path:
@@ -98,13 +96,49 @@ class SPBEProspectusParser:
             self.browser = self.playwright.chromium.launch(**launch_args)
             browser_name = "Chromium"
 
-        # Создаем контекст с игнорированием SSL ошибок
+        # Создаем контекст с реалистичными параметрами браузера
         context = self.browser.new_context(
-            user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36',
-            ignore_https_errors=True  # Игнорируем ошибки SSL сертификатов
+            user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            viewport={'width': 1920, 'height': 1080},
+            locale='ru-RU',
+            timezone_id='Europe/Moscow',
+            ignore_https_errors=True,
+            extra_http_headers={
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+                'Accept-Language': 'ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7',
+                'Accept-Encoding': 'gzip, deflate, br',
+                'DNT': '1',
+                'Connection': 'keep-alive',
+                'Upgrade-Insecure-Requests': '1',
+                'Sec-Fetch-Dest': 'document',
+                'Sec-Fetch-Mode': 'navigate',
+                'Sec-Fetch-Site': 'none',
+                'Sec-Fetch-User': '?1',
+                'Cache-Control': 'max-age=0'
+            }
         )
 
         self.page = context.new_page()
+
+        # Маскируем признаки автоматизации через JavaScript
+        self.page.add_init_script("""
+            Object.defineProperty(navigator, 'webdriver', {
+                get: () => undefined
+            });
+
+            // Маскируем chrome объект
+            window.chrome = {
+                runtime: {}
+            };
+
+            // Маскируем permissions
+            const originalQuery = window.navigator.permissions.query;
+            window.navigator.permissions.query = (parameters) => (
+                parameters.name === 'notifications' ?
+                    Promise.resolve({ state: Notification.permission }) :
+                    originalQuery(parameters)
+            );
+        """)
 
         # Увеличиваем таймаут по умолчанию
         self.page.set_default_timeout(30000)
@@ -482,33 +516,48 @@ class SPBEProspectusParser:
     def get_rf_issuers(self) -> List[Dict]:
         """
         Получение списка РФ компаний (эмитентов)
+        Использует requests+BeautifulSoup для обхода блокировки Playwright
 
         Returns:
             Список словарей с информацией об эмитентах
         """
-        logger.info("Получение списка РФ компаний...")
+        logger.info("Получение списка РФ компаний через requests...")
 
         try:
-            self.page.goto(self.ISSUERS_BASE_URL, wait_until='networkidle', timeout=30000)
-            time.sleep(3)
+            from bs4 import BeautifulSoup
 
-            # Ждем загрузки ссылок на эмитентов
-            self.page.wait_for_selector('a[href^="/issuers/"]', timeout=10000)
+            # Используем requests с реалистичными headers
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+                'Accept-Language': 'ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7',
+                'Accept-Encoding': 'gzip, deflate, br',
+                'DNT': '1',
+                'Connection': 'keep-alive',
+                'Upgrade-Insecure-Requests': '1',
+            }
 
-        except Exception as e:
-            logger.error(f"Ошибка при загрузке страницы эмитентов: {e}")
-            return []
+            response = requests.get(self.ISSUERS_BASE_URL, headers=headers, verify=False, timeout=30)
+            response.raise_for_status()
 
-        issuers = []
+            logger.info(f"Страница загружена через requests, статус: {response.status_code}")
 
-        try:
+            # Проверяем, не блокирует ли нас сайт
+            if 'Access denied' in response.text or 'Доступ запрещен' in response.text or 'captcha' in response.text.lower():
+                logger.error("Сайт блокирует доступ (Access denied или captcha)")
+                return []
+
+            # Парсим HTML
+            soup = BeautifulSoup(response.text, 'html.parser')
+
             # Ищем ссылки на страницы эмитентов
-            issuer_links = self.page.query_selector_all('a[href^="/issuers/"]')
+            issuer_links = soup.find_all('a', href=True)
 
+            issuers = []
             seen_links = set()
 
             for link in issuer_links:
-                href = link.get_attribute('href')
+                href = link.get('href')
                 if href and '/issuers/' in href and href not in seen_links:
                     seen_links.add(href)
 
@@ -526,6 +575,7 @@ class SPBEProspectusParser:
 
         except Exception as e:
             logger.error(f"Ошибка при получении списка РФ эмитентов: {e}")
+            return []
 
         return issuers
 
@@ -577,6 +627,15 @@ class SPBEProspectusParser:
                     logger.warning(f"Не удалось перейти к разделу ценных бумаг для {issuer_name}: {e}")
                     continue
 
+                # Ждем загрузки таблицы с облигациями через AJAX перед поиском переключателя
+                try:
+                    self.page.wait_for_selector('div#tab_content table', timeout=10000)
+                    logger.info("Таблица с облигациями загружена")
+                    time.sleep(1)
+                except Exception as e:
+                    logger.warning(f"Таймаут ожидания таблицы: {e}")
+                    time.sleep(2)
+
                 # Кликаем "Показать аннулированные" если есть
                 # По HTML это: <span val="1" onclick="switch_vis();" id="switcher">Скрыть аннулированные</span>
                 # или <span val="0" id="switcher">Показать аннулированные</span>
@@ -589,25 +648,19 @@ class SPBEProspectusParser:
                         # Если написано "Показать аннулированные", кликаем
                         if 'Показать' in switcher_text:
                             switcher.click()
-                            logger.info("Кликнули 'Показать аннулированные'")
-                            time.sleep(2)
+                            logger.info("Кликнули 'Показать аннулированные', ждем изменения классов строк с trclosed на trshow")
+                            # Увеличиваем время ожидания для изменения классов строк таблицы
+                            time.sleep(4)
+                        else:
+                            logger.info(f"Аннулированные уже показаны (текст переключателя: '{switcher_text}')")
+                    else:
+                        logger.warning("Переключатель 'Показать аннулированные' не найден")
                 except Exception as e:
                     logger.warning(f"Ошибка при клике на 'Показать аннулированные': {e}")
 
                 # Получаем список облигаций из таблицы
                 # Ищем ссылки на "Государственный регистрационный номер"
                 try:
-                    # Ждем загрузки таблицы с облигациями через AJAX
-                    # Ждем появления div с id="tab_content" который содержит таблицу
-                    try:
-                        self.page.wait_for_selector('div#tab_content table', timeout=10000)
-                        logger.info("Таблица с облигациями загружена")
-                        time.sleep(1)
-                    except Exception as e:
-                        logger.warning(f"Таймаут ожидания таблицы: {e}")
-                        # Попробуем просто подождать
-                        time.sleep(3)
-
                     # Пробуем разные селекторы для поиска регистрационных номеров
                     # По HTML: <td class="ahref" onclick=" ShowAction('...','alrs',event) ">4B02-03-40046-N-001P</td>
 
