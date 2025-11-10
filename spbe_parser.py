@@ -107,6 +107,28 @@ class SPBEParser:
 
         self.page = context.new_page()
 
+        # Блокируем JavaScript конвертацию дат в локальный timezone
+        # Переопределяем методы Date для работы только с UTC
+        self.page.add_init_script("""
+            // Сохраняем оригинальные методы
+            const OriginalDate = Date;
+            const OriginalDatePrototype = Date.prototype;
+
+            // Переопределяем toLocaleString и связанные методы
+            Date.prototype.toLocaleDateString = function() {
+                return this.toISOString().split('T')[0].split('-').reverse().join('.');
+            };
+
+            Date.prototype.toLocaleString = function() {
+                return this.toISOString().split('T')[0].split('-').reverse().join('.');
+            };
+
+            // Переопределяем getTimezoneOffset для UTC
+            Date.prototype.getTimezoneOffset = function() {
+                return 0;
+            };
+        """)
+
         # Увеличиваем таймаут по умолчанию
         self.page.set_default_timeout(30000)
 
@@ -396,12 +418,11 @@ class SPBEParser:
         logger.info(f"Парсинг облигации: {bond_url}")
 
         try:
-            self.page.goto(bond_url, wait_until='networkidle', timeout=30000)
+            # Загружаем страницу и сразу получаем HTML до модификации JavaScript
+            self.page.goto(bond_url, wait_until='domcontentloaded', timeout=30000)
         except PlaywrightTimeoutError:
             logger.error(f"Timeout при загрузке страницы {bond_url}")
             return {}
-
-        time.sleep(3)  # Ждем загрузки динамического контента
 
         bond_data = {}
 
@@ -409,10 +430,9 @@ class SPBEParser:
             # Ждем загрузки полей
             self.page.wait_for_selector('li.SecuritiesField_item__7TKJg', timeout=10000)
 
-            # Получаем весь HTML страницы напрямую из DOM через evaluate
-            # чтобы избежать JS обработки (даты сдвигались на +1 день из-за timezone)
-            # page.content() может возвращать обработанный HTML, поэтому используем evaluate
-            page_html = self.page.evaluate('() => document.documentElement.outerHTML')
+            # ВАЖНО: Получаем HTML максимально быстро, пока JavaScript не изменил даты
+            # Используем page.content() сразу после появления элементов
+            page_html = self.page.content()
             soup = BeautifulSoup(page_html, 'html.parser')
 
             # Ищем все элементы с классом SecuritiesField_item
