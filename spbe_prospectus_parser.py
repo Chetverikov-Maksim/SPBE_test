@@ -54,91 +54,62 @@ class SPBEProspectusParser:
 
     def setup_browser(self):
         """Настройка и запуск браузера"""
-        logger.info("Запуск Chromium через Playwright...")
+        logger.info("Запуск браузера через Playwright...")
         self.playwright = sync_playwright().start()
 
-        # Пытаемся найти установленный браузер
-        possible_paths = [
-            os.path.expanduser('~/.cache/ms-playwright/chromium-1194/chrome-linux/chrome'),
-            '/root/.cache/ms-playwright/chromium-1194/chrome-linux/chrome',
-        ]
-
-        chromium_path = None
-        for path in possible_paths:
-            if os.path.exists(path):
-                chromium_path = path
-                logger.info(f"Найден Chromium: {chromium_path}")
-                break
-
-        # Аргументы для стабильности и обхода anti-bot защиты
-        launch_args = {
-            'headless': True,
-            'args': [
-                '--no-sandbox',
-                '--disable-dev-shm-usage',
-                '--disable-blink-features=AutomationControlled',  # Скрываем автоматизацию
-                '--disable-infobars',
-                '--window-size=1920,1080',
-                '--single-process',  # Для стабильности в headless режиме
-                '--no-zygote'
+        # Пытаемся использовать Chromium если Firefox недоступен
+        try:
+            self.browser = self.playwright.firefox.launch(
+                headless=self.headless,
+                args=['--no-sandbox', '--disable-dev-shm-usage']
+            )
+            browser_name = "Firefox"
+        except Exception as e:
+            logger.warning(f"Firefox недоступен: {e}")
+            logger.info("Переключаемся на Chromium...")
+            # Ищем установленный Chromium
+            possible_chromium_paths = [
+                os.path.expanduser('~/.cache/ms-playwright/chromium-1194/chrome-linux/chrome'),
+                '/root/.cache/ms-playwright/chromium-1194/chrome-linux/chrome',
             ]
-        }
+            chromium_path = None
+            for path in possible_chromium_paths:
+                if os.path.exists(path):
+                    chromium_path = path
+                    logger.info(f"Найден Chromium: {chromium_path}")
+                    break
 
-        # Если нашли браузер, используем его путь
-        if chromium_path:
-            launch_args['executable_path'] = chromium_path
-
-        self.browser = self.playwright.chromium.launch(**launch_args)
-
-        # Создаем контекст с игнорированием SSL ошибок и более реалистичными параметрами
-        context = self.browser.new_context(
-            user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            ignore_https_errors=True,  # Игнорируем ошибки SSL сертификатов
-            viewport={'width': 1920, 'height': 1080},
-            locale='ru-RU',
-            timezone_id='Europe/Moscow',
-            # Добавляем реалистичные заголовки
-            extra_http_headers={
-                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
-                'Accept-Language': 'ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7',
-                'Accept-Encoding': 'gzip, deflate, br',
-                'DNT': '1',
-                'Connection': 'keep-alive',
-                'Upgrade-Insecure-Requests': '1',
-                'Sec-Fetch-Dest': 'document',
-                'Sec-Fetch-Mode': 'navigate',
-                'Sec-Fetch-Site': 'none',
-                'Sec-Fetch-User': '?1',
-                'Cache-Control': 'max-age=0',
+            # Используем Chromium с минимальными зависимостями
+            launch_args = {
+                'headless': self.headless,
+                'args': [
+                    '--no-sandbox',
+                    '--disable-dev-shm-usage',
+                    '--disable-gpu',
+                    '--disable-software-rasterizer',
+                    '--disable-extensions',
+                    '--single-process',  # Предотвращаем крэши в headless режиме
+                    '--no-zygote'
+                ]
             }
+            if chromium_path:
+                launch_args['executable_path'] = chromium_path
+
+            self.browser = self.playwright.chromium.launch(**launch_args)
+            browser_name = "Chromium"
+
+        # Создаем контекст с игнорированием SSL ошибок
+        context = self.browser.new_context(
+            user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36',
+            ignore_https_errors=True  # Игнорируем ошибки SSL сертификатов
         )
 
         self.page = context.new_page()
 
-        # Маскируем автоматизацию
-        self.page.add_init_script("""
-            Object.defineProperty(navigator, 'webdriver', {
-                get: () => undefined
-            });
-
-            // Добавляем chrome объект для реалистичности
-            window.chrome = {
-                runtime: {}
-            };
-
-            // Переопределяем permissions
-            const originalQuery = window.navigator.permissions.query;
-            window.navigator.permissions.query = (parameters) => (
-                parameters.name === 'notifications' ?
-                    Promise.resolve({ state: Notification.permission }) :
-                    originalQuery(parameters)
-            );
-        """)
-
         # Увеличиваем таймаут по умолчанию
         self.page.set_default_timeout(30000)
 
-        logger.info("Браузер Chromium успешно запущен с anti-bot обходом")
+        logger.info(f"Браузер {browser_name} успешно запущен")
 
     def close_browser(self):
         """Закрытие браузера"""
@@ -518,22 +489,11 @@ class SPBEProspectusParser:
         logger.info("Получение списка РФ компаний...")
 
         try:
-            # Используем domcontentloaded вместо networkidle для избежания крашей
-            self.page.goto(self.ISSUERS_BASE_URL, wait_until='domcontentloaded', timeout=60000)
-            logger.info("Страница загружена, ждем...")
-            time.sleep(10)  # Увеличиваем время ожидания для полной загрузки
+            self.page.goto(self.ISSUERS_BASE_URL, wait_until='networkidle', timeout=30000)
+            time.sleep(3)
 
-            # Попробуем найти ссылки с разными селекторами
-            try:
-                self.page.wait_for_selector('a[href*="/issuers/"]', timeout=10000)
-                logger.info("Найдены ссылки на эмитентов")
-            except Exception:
-                logger.warning("Не удалось найти ссылки с стандартным селектором")
-                # Сохраним HTML для отладки
-                html = self.page.content()
-                logger.info(f"HTML длина: {len(html)}")
-                if len(html) < 5000:
-                    logger.info(f"HTML содержимое (первые 2000 символов): {html[:2000]}")
+            # Ждем загрузки ссылок на эмитентов
+            self.page.wait_for_selector('a[href^="/issuers/"]', timeout=10000)
 
         except Exception as e:
             logger.error(f"Ошибка при загрузке страницы эмитентов: {e}")
