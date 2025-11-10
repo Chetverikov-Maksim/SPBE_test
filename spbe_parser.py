@@ -8,7 +8,7 @@ import logging
 import time
 import csv
 import re
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Dict, List, Optional
 from urllib.parse import quote
 from playwright.sync_api import sync_playwright, Page, Browser, TimeoutError as PlaywrightTimeoutError
@@ -143,6 +143,35 @@ class SPBEParser:
         if self.playwright:
             self.playwright.stop()
         logger.info("Браузер закрыт")
+
+    def _correct_date(self, date_str: str) -> Optional[str]:
+        """
+        Исправляет дату, вычитая 1 день
+
+        Сервер возвращает даты с +1 день из-за особенностей обработки timezone.
+        Эта функция корректирует дату, вычитая 1 день.
+
+        Args:
+            date_str: Строка с датой в формате DD.MM.YYYY
+
+        Returns:
+            Исправленная дата в том же формате или None при ошибке
+        """
+        if not date_str or date_str.strip() == '':
+            return None
+
+        try:
+            # Парсим дату в формате DD.MM.YYYY
+            date_obj = datetime.strptime(date_str.strip(), "%d.%m.%Y")
+
+            # Вычитаем 1 день
+            corrected_date_obj = date_obj - timedelta(days=1)
+
+            # Возвращаем в том же формате
+            return corrected_date_obj.strftime("%d.%m.%Y")
+        except Exception as e:
+            logger.warning(f"Не удалось распарсить дату '{date_str}': {e}")
+            return date_str  # Возвращаем оригинал при ошибке
 
     def get_bonds_list(self) -> List[Dict]:
         """
@@ -516,6 +545,26 @@ class SPBEParser:
                 # но сохраняем пробелы между числом и текстом
                 coupon_value = re.sub(r'(\d)\s+(\d)', r'\1\2', coupon_value)
                 bond_data['Coupon'] = coupon_value
+
+            # Исправление дат: сервер возвращает даты с +1 день
+            # Применяем коррекцию ко всем полям с датами
+            date_fields = [
+                'Issue Date',
+                'Maturity Date',
+                'Decision date to include in the List',
+                'Listing Inclusion Date',
+                'Start Date Organized Trading'
+            ]
+
+            for field in date_fields:
+                if field in bond_data and bond_data[field]:
+                    try:
+                        corrected_date = self._correct_date(bond_data[field])
+                        if corrected_date:
+                            bond_data[field] = corrected_date
+                            logger.debug(f"Corrected {field}: {bond_data[field]} -> {corrected_date}")
+                    except Exception as e:
+                        logger.warning(f"Не удалось исправить дату для поля {field}: {e}")
 
             logger.info(f"Облигация успешно обработана. Получено полей: {len(bond_data)}")
 
