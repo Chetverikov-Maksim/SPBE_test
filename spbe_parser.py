@@ -97,37 +97,16 @@ class SPBEParser:
             args=['--no-sandbox', '--disable-dev-shm-usage']
         )
 
-        # Создаем контекст с игнорированием SSL ошибок и UTC timezone
+        # Создаем контекст с игнорированием SSL ошибок и Moscow timezone
+        # СПБ Биржа находится в Санкт-Петербурге/Москве (Europe/Moscow, UTC+3)
         context = self.browser.new_context(
             user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36',
             ignore_https_errors=True,  # Игнорируем ошибки SSL сертификатов
-            timezone_id='UTC',  # Устанавливаем UTC timezone чтобы избежать конвертации дат
-            locale='en-US'
+            timezone_id='Europe/Moscow',  # Используем московское время
+            locale='ru-RU'  # Русская локаль
         )
 
         self.page = context.new_page()
-
-        # Блокируем JavaScript конвертацию дат в локальный timezone
-        # Переопределяем методы Date для работы только с UTC
-        self.page.add_init_script("""
-            // Сохраняем оригинальные методы
-            const OriginalDate = Date;
-            const OriginalDatePrototype = Date.prototype;
-
-            // Переопределяем toLocaleString и связанные методы
-            Date.prototype.toLocaleDateString = function() {
-                return this.toISOString().split('T')[0].split('-').reverse().join('.');
-            };
-
-            Date.prototype.toLocaleString = function() {
-                return this.toISOString().split('T')[0].split('-').reverse().join('.');
-            };
-
-            // Переопределяем getTimezoneOffset для UTC
-            Date.prototype.getTimezoneOffset = function() {
-                return 0;
-            };
-        """)
 
         # Увеличиваем таймаут по умолчанию
         self.page.set_default_timeout(30000)
@@ -546,25 +525,30 @@ class SPBEParser:
                 coupon_value = re.sub(r'(\d)\s+(\d)', r'\1\2', coupon_value)
                 bond_data['Coupon'] = coupon_value
 
-            # Исправление дат: сервер возвращает даты с +1 день
-            # Применяем коррекцию ко всем полям с датами
-            date_fields = [
-                'Issue Date',
-                'Maturity Date',
-                'Decision date to include in the List',
-                'Listing Inclusion Date',
-                'Start Date Organized Trading'
-            ]
+            # ВРЕМЕННО ОТКЛЮЧЕНО: Исправление дат
+            # Проверяем правильность дат с новыми настройками timezone (Europe/Moscow)
+            # Если даты все еще неверные, нужно будет вернуть эту коррекцию
+            # date_fields = [
+            #     'Issue Date',
+            #     'Maturity Date',
+            #     'Decision date to include in the List',
+            #     'Listing Inclusion Date',
+            #     'Start Date Organized Trading'
+            # ]
+            #
+            # for field in date_fields:
+            #     if field in bond_data and bond_data[field]:
+            #         try:
+            #             corrected_date = self._correct_date(bond_data[field])
+            #             if corrected_date:
+            #                 bond_data[field] = corrected_date
+            #                 logger.debug(f"Corrected {field}: {bond_data[field]} -> {corrected_date}")
+            #         except Exception as e:
+            #             logger.warning(f"Не удалось исправить дату для поля {field}: {e}")
 
-            for field in date_fields:
-                if field in bond_data and bond_data[field]:
-                    try:
-                        corrected_date = self._correct_date(bond_data[field])
-                        if corrected_date:
-                            bond_data[field] = corrected_date
-                            logger.debug(f"Corrected {field}: {bond_data[field]} -> {corrected_date}")
-                    except Exception as e:
-                        logger.warning(f"Не удалось исправить дату для поля {field}: {e}")
+            # Логируем Issue Date для диагностики
+            if 'Issue Date' in bond_data:
+                logger.info(f"*** Issue Date from server: {bond_data['Issue Date']} ***")
 
             logger.info(f"Облигация успешно обработана. Получено полей: {len(bond_data)}")
 
