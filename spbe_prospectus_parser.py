@@ -208,82 +208,62 @@ class SPBEProspectusParser:
 
         foreign_bonds = []
 
-        # Теперь парсим таблицу и фильтруем по колонке "Категория"
-        # Читаем все строки таблицы и ищем "иностранного эмитента"
-        try:
-            from bs4 import BeautifulSoup
+        # Получаем структуру таблицы один раз (заголовки)
+        from bs4 import BeautifulSoup
 
+        # Определяем индекс колонки категории (делаем один раз)
+        category_idx = None
+        try:
             page_html = self.page.content()
             soup = BeautifulSoup(page_html, 'html.parser')
-
-            # Находим таблицу (пробуем разные классы)
             table = soup.find('table', class_='Table_display__szeQI')
-            if not table:
-                table = soup.find('table', class_='Table_table__dOaFP')
-            if not table:
-                table = soup.find('table')  # Любая таблица
+            if table:
+                thead = table.find('thead')
+                if thead:
+                    headers = [th.get_text(strip=True) for th in thead.find_all('th')]
+                    logger.info(f"Найдено колонок в таблице: {len(headers)}")
+                    for idx, header in enumerate(headers):
+                        if 'категория' in header.lower() or 'тип' in header.lower():
+                            category_idx = idx
+                            logger.info(f"Колонка категории найдена под индексом {idx}: '{header}'")
+                            break
+        except Exception as e:
+            logger.error(f"Ошибка при получении структуры таблицы: {e}")
 
-            if not table:
-                logger.warning("Таблица не найдена в HTML")
-                return foreign_bonds
-            else:
-                logger.info(f"Таблица найдена с классом: {table.get('class')}")
+        if category_idx is None:
+            logger.warning("Колонка с категорией не найдена, используем альтернативный метод")
+            logger.info(f"Всего найдено иностранных облигаций: {len(foreign_bonds)}")
+            return foreign_bonds
 
-            # Находим заголовки для определения индекса колонки
-            thead = table.find('thead')
-            headers = []
-            if thead:
-                for th in thead.find_all('th'):
-                    headers.append(th.get_text(strip=True))
+        # Парсим все страницы с пагинацией
+        page_num = 0
+        max_pages = 100  # Защита от бесконечного цикла
 
-            logger.info(f"Найдено колонок в таблице: {len(headers)}")
-            if headers:
-                logger.info(f"Заголовки: {headers}")
+        while page_num < max_pages:
+            logger.info(f"Парсинг страницы {page_num + 1}...")
 
-            # Ищем индекс колонки с категорией
-            # Может называться "Вид, категория (тип) ценной бумаги" или просто "Категория"
-            category_idx = None
-            for idx, header in enumerate(headers):
-                if 'категория' in header.lower() or 'тип' in header.lower():
-                    category_idx = idx
-                    logger.info(f"Колонка категории найдена под индексом {idx}: '{header}'")
+            try:
+                # Получаем HTML текущей страницы
+                page_html = self.page.content()
+                soup = BeautifulSoup(page_html, 'html.parser')
+
+                # Находим таблицу
+                table = soup.find('table', class_='Table_display__szeQI')
+                if not table:
+                    table = soup.find('table')
+
+                if not table:
+                    logger.warning(f"Таблица не найдена на странице {page_num + 1}")
                     break
 
-            if category_idx is None:
-                logger.warning("Колонка с категорией не найдена")
-                # Пробуем альтернативный метод - по всем ссылкам card_bond (иностранные)
-                logger.info("Используем альтернативный метод: фильтруем по типу ссылки card_bond")
-                bond_links = self.page.query_selector_all('a[href*="/listing/securities/card_bond/?issue="]')
+                # Парсим строки таблицы
+                tbody = table.find('tbody')
+                if not tbody:
+                    logger.warning(f"tbody не найден на странице {page_num + 1}")
+                    break
 
-                seen_links = set()
-                for link in bond_links:
-                    href = link.get_attribute('href')
-                    if href and href not in seen_links:
-                        seen_links.add(href)
-                        if not href.startswith('http'):
-                            href = self.BASE_URL + href
-                        issue_id = href.split('issue=')[-1] if 'issue=' in href else None
-                        if issue_id:
-                            # Извлекаем ISIN из текста ссылки
-                            isin = link.inner_text().strip() if link.inner_text() else None
-
-                            # issuer_name будет получен позже при заходе на детальную страницу
-                            foreign_bonds.append({
-                                'url': href,
-                                'issue_id': issue_id,
-                                'isin': isin,
-                                'issuer_name': None  # Будет заполнено позже
-                            })
-                            logger.info(f"Найдена иностранная облигация: {isin}")
-
-                logger.info(f"Найдено иностранных облигаций по ссылкам: {len(foreign_bonds)}")
-                return foreign_bonds
-
-            # Парсим строки таблицы
-            tbody = table.find('tbody')
-            if tbody:
                 rows = tbody.find_all('tr')
-                logger.info(f"Найдено строк в таблице: {len(rows)}")
+                logger.info(f"Найдено строк на странице {page_num + 1}: {len(rows)}")
 
                 for row_idx, row in enumerate(rows):
                     cells = row.find_all('td')
@@ -296,11 +276,8 @@ class SPBEProspectusParser:
                     category_cell = cells[category_idx]
                     category_text = category_cell.get_text(strip=True)
 
-                    logger.info(f"Строка {row_idx}: категория = '{category_text}'")
-
                     # Фильтруем только "иностранного эмитента"
                     if 'иностранного эмитента' in category_text.lower():
-                        logger.info(f"Строка {row_idx}: найдена категория 'иностранного эмитента'")
 
                         # Ищем ссылку в этой строке
                         link = row.find('a', href=True)
@@ -338,10 +315,39 @@ class SPBEProspectusParser:
                         else:
                             logger.warning(f"Строка {row_idx}: ссылка не найдена в строке с категорией 'иностранного эмитента'")
 
-        except Exception as e:
-            logger.error(f"Ошибка при парсинге таблицы: {e}")
-            import traceback
-            logger.error(traceback.format_exc())
+                # Переход на следующую страницу
+                page_num += 1
+
+                # Ищем кнопку "Next"
+                next_button = self.page.query_selector('button.Pagination_paginationButtonNext__7dYko')
+                if not next_button:
+                    logger.info("Кнопка 'Следующая страница' не найдена, достигнут конец списка")
+                    break
+
+                # Проверяем, активна ли кнопка
+                is_disabled = next_button.evaluate('element => element.disabled')
+                if is_disabled:
+                    logger.info("Кнопка 'Следующая страница' неактивна, достигнут конец списка")
+                    break
+
+                # Кликаем на кнопку "Next"
+                next_button.click()
+                logger.info(f"Переход на страницу {page_num + 1}...")
+
+                # Ждем загрузки новых данных
+                try:
+                    self.page.wait_for_selector('.LoadingSpinner_root__K9Qwq', state='attached', timeout=3000)
+                    self.page.wait_for_selector('.LoadingSpinner_root__K9Qwq', state='detached', timeout=30000)
+                except:
+                    pass
+
+                time.sleep(2)
+
+            except Exception as e:
+                logger.error(f"Ошибка при парсинге страницы {page_num + 1}: {e}")
+                import traceback
+                logger.error(traceback.format_exc())
+                break
 
         logger.info(f"Всего найдено иностранных облигаций: {len(foreign_bonds)}")
         return foreign_bonds
