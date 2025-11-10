@@ -566,7 +566,7 @@ class SPBEProspectusParser:
                         if bonds_link:
                             bonds_link.click()
                             logger.info("Кликнули на 'Облигации'")
-                            time.sleep(2)
+                            time.sleep(4)  # Увеличили время ожидания для загрузки таблицы через AJAX
                         else:
                             logger.warning(f"Не найден подраздел 'Облигации' для {issuer_name}")
                             continue
@@ -578,24 +578,65 @@ class SPBEProspectusParser:
                     continue
 
                 # Кликаем "Показать аннулированные" если есть
+                # По HTML это: <span val="1" onclick="switch_vis();" id="switcher">Скрыть аннулированные</span>
+                # или <span val="0" id="switcher">Показать аннулированные</span>
                 try:
-                    show_cancelled_btn = self.page.query_selector('input[value="Показать аннулированные"], button:has-text("Показать аннулированные")')
-                    if show_cancelled_btn:
-                        show_cancelled_btn.click()
-                        logger.info("Кликнули 'Показать аннулированные'")
-                        time.sleep(1)
-                except Exception:
-                    pass
+                    # Ищем span с id="switcher" и проверяем текст
+                    switcher = self.page.query_selector('span#switcher')
+                    if switcher:
+                        switcher_text = switcher.inner_text().strip()
+                        logger.info(f"Найден переключатель: '{switcher_text}'")
+                        # Если написано "Показать аннулированные", кликаем
+                        if 'Показать' in switcher_text:
+                            switcher.click()
+                            logger.info("Кликнули 'Показать аннулированные'")
+                            time.sleep(2)
+                except Exception as e:
+                    logger.warning(f"Ошибка при клике на 'Показать аннулированные': {e}")
 
                 # Получаем список облигаций из таблицы
                 # Ищем ссылки на "Государственный регистрационный номер"
                 try:
-                    # Подождем загрузки таблицы
-                    time.sleep(2)
+                    # Ждем загрузки таблицы с облигациями через AJAX
+                    # Ждем появления div с id="tab_content" который содержит таблицу
+                    try:
+                        self.page.wait_for_selector('div#tab_content table', timeout=10000)
+                        logger.info("Таблица с облигациями загружена")
+                        time.sleep(1)
+                    except Exception as e:
+                        logger.warning(f"Таймаут ожидания таблицы: {e}")
+                        # Попробуем просто подождать
+                        time.sleep(3)
 
-                    # Ищем все td с регистрационными номерами (они имеют класс ahref и onclick)
+                    # Пробуем разные селекторы для поиска регистрационных номеров
                     # По HTML: <td class="ahref" onclick=" ShowAction('...','alrs',event) ">4B02-03-40046-N-001P</td>
-                    reg_number_cells = self.page.query_selector_all('td.ahref[onclick*="ShowAction"]')
+
+                    # Вариант 1: td с классом ahref и onclick внутри div#tab_content
+                    reg_number_cells = self.page.query_selector_all('div#tab_content td.ahref[onclick]')
+
+                    if not reg_number_cells:
+                        # Вариант 2: любые td с классом ahref
+                        reg_number_cells = self.page.query_selector_all('td.ahref')
+                        logger.info(f"Используем вариант 2: td.ahref, найдено {len(reg_number_cells)}")
+
+                    if not reg_number_cells:
+                        # Вариант 3: любые td с onclick содержащим ShowAction
+                        reg_number_cells = self.page.query_selector_all('td[onclick]')
+                        logger.info(f"Используем вариант 3: td[onclick], найдено {len(reg_number_cells)}")
+
+                    # Отладка: сохраним HTML страницы если не нашли
+                    if not reg_number_cells:
+                        page_html = self.page.content()
+                        logger.warning(f"Не найдены регистрационные номера. HTML длина: {len(page_html)}")
+                        # Проверяем, есть ли div#tab_content
+                        tab_content = self.page.query_selector('div#tab_content')
+                        if tab_content:
+                            logger.info("div#tab_content найден")
+                            # Проверяем таблицы
+                            tables = self.page.query_selector_all('div#tab_content table')
+                            logger.info(f"Найдено таблиц в tab_content: {len(tables)}")
+                        else:
+                            logger.warning("div#tab_content НЕ найден!")
 
                     logger.info(f"Найдено облигаций для {issuer_name}: {len(reg_number_cells)}")
 
