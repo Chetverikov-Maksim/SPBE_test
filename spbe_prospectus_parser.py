@@ -593,28 +593,24 @@ class SPBEProspectusParser:
                     # Подождем загрузки таблицы
                     time.sleep(2)
 
-                    # Ищем все ссылки которые являются регистрационными номерами
-                    # Они обычно в таблице и при клике открывают детали
-                    reg_number_links = self.page.query_selector_all('table a[href*="javascript"], table a[onclick]')
+                    # Ищем все td с регистрационными номерами (они имеют класс ahref и onclick)
+                    # По HTML: <td class="ahref" onclick=" ShowAction('...','alrs',event) ">4B02-03-40046-N-001P</td>
+                    reg_number_cells = self.page.query_selector_all('td.ahref[onclick*="ShowAction"]')
 
-                    if not reg_number_links:
-                        # Альтернативный поиск - любые ссылки в таблице
-                        reg_number_links = self.page.query_selector_all('table.tablesaw a, table tbody tr a')
+                    logger.info(f"Найдено облигаций для {issuer_name}: {len(reg_number_cells)}")
 
-                    logger.info(f"Найдено облигаций для {issuer_name}: {len(reg_number_links)}")
-
-                    for bond_idx, reg_link in enumerate(reg_number_links[:10]):  # Ограничим 10 для теста
+                    for bond_idx, reg_cell in enumerate(reg_number_cells[:10]):  # Ограничим 10 для теста
                         try:
-                            # Получаем текст ссылки (это и есть регистрационный номер или ISIN)
-                            reg_number = reg_link.inner_text().strip()
+                            # Получаем текст ячейки (это и есть регистрационный номер)
+                            reg_number = reg_cell.inner_text().strip()
                             logger.info(f"Обработка облигации: {reg_number}")
 
-                            # Кликаем на ссылку чтобы раскрыть детали
-                            reg_link.click()
-                            time.sleep(2)
+                            # Кликаем на ячейку чтобы открыть диалог с документами
+                            reg_cell.click()
+                            time.sleep(3)  # Ждем открытия диалога
 
-                            # Теперь ищем секцию с документами (таблица tbody с документами)
-                            # Ищем ссылки на документы в раскрывшейся секции
+                            # Ищем документы в открывшемся диалоге
+                            # По HTML документы находятся в ссылках с href="/Documents/Index"
                             doc_links = self.page.query_selector_all('a[href*="/Documents/Index"]')
 
                             logger.info(f"Найдено документов для {reg_number}: {len(doc_links)}")
@@ -658,8 +654,28 @@ class SPBEProspectusParser:
                                     logger.warning(f"Ошибка при скачивании документа: {e}")
                                     continue
 
+                            # Закрываем диалог после обработки документов
+                            try:
+                                # Пробуем закрыть диалог - ищем кнопку закрытия или нажимаем Escape
+                                close_button = self.page.query_selector('.ui-dialog-titlebar-close, button:has-text("Закрыть")')
+                                if close_button:
+                                    close_button.click()
+                                    time.sleep(1)
+                                else:
+                                    # Если кнопки нет, нажимаем Escape
+                                    self.page.keyboard.press('Escape')
+                                    time.sleep(1)
+                            except Exception:
+                                pass
+
                         except Exception as e:
                             logger.warning(f"Ошибка при обработке облигации {bond_idx}: {e}")
+                            # Пробуем закрыть диалог в случае ошибки
+                            try:
+                                self.page.keyboard.press('Escape')
+                                time.sleep(1)
+                            except Exception:
+                                pass
                             continue
 
                 except Exception as e:
