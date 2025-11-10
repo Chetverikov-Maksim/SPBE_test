@@ -525,30 +525,28 @@ class SPBEParser:
                 coupon_value = re.sub(r'(\d)\s+(\d)', r'\1\2', coupon_value)
                 bond_data['Coupon'] = coupon_value
 
-            # ВРЕМЕННО ОТКЛЮЧЕНО: Исправление дат
-            # Проверяем правильность дат с новыми настройками timezone (Europe/Moscow)
-            # Если даты все еще неверные, нужно будет вернуть эту коррекцию
-            # date_fields = [
-            #     'Issue Date',
-            #     'Maturity Date',
-            #     'Decision date to include in the List',
-            #     'Listing Inclusion Date',
-            #     'Start Date Organized Trading'
-            # ]
-            #
-            # for field in date_fields:
-            #     if field in bond_data and bond_data[field]:
-            #         try:
-            #             corrected_date = self._correct_date(bond_data[field])
-            #             if corrected_date:
-            #                 bond_data[field] = corrected_date
-            #                 logger.debug(f"Corrected {field}: {bond_data[field]} -> {corrected_date}")
-            #         except Exception as e:
-            #             logger.warning(f"Не удалось исправить дату для поля {field}: {e}")
+            # Исправление дат: сервер возвращает даты с +1 день
+            # Причина неизвестна (проверено: не timezone, не locale, не JavaScript)
+            # Возможно баг на стороне сервера или особенность хранения в БД
+            # Применяем коррекцию ко всем полям с датами
+            date_fields = [
+                'Issue Date',
+                'Maturity Date',
+                'Decision date to include in the List',
+                'Listing Inclusion Date',
+                'Start Date Organized Trading'
+            ]
 
-            # Логируем Issue Date для диагностики
-            if 'Issue Date' in bond_data:
-                logger.info(f"*** Issue Date from server: {bond_data['Issue Date']} ***")
+            for field in date_fields:
+                if field in bond_data and bond_data[field]:
+                    try:
+                        original_date = bond_data[field]
+                        corrected_date = self._correct_date(original_date)
+                        if corrected_date:
+                            bond_data[field] = corrected_date
+                            logger.debug(f"Corrected {field}: {original_date} -> {corrected_date}")
+                    except Exception as e:
+                        logger.warning(f"Не удалось исправить дату для поля {field}: {e}")
 
             logger.info(f"Облигация успешно обработана. Получено полей: {len(bond_data)}")
 
