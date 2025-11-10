@@ -89,12 +89,21 @@ class SPBEParser:
 
     def setup_browser(self):
         """Настройка и запуск браузера"""
-        logger.info("Запуск Firefox через Playwright...")
+        logger.info("Запуск Chromium через Playwright...")
         self.playwright = sync_playwright().start()
 
-        self.browser = self.playwright.firefox.launch(
-            headless=self.headless,
-            args=['--no-sandbox', '--disable-dev-shm-usage']
+        # Используем regular Chromium с дополнительными флагами для стабильности
+        self.browser = self.playwright.chromium.launch(
+            headless=True,
+            executable_path='/root/.cache/ms-playwright/chromium-1194/chrome-linux/chrome',
+            args=[
+                '--no-sandbox',
+                '--disable-dev-shm-usage',
+                '--disable-gpu',
+                '--disable-software-rasterizer',
+                '--disable-extensions',
+                '--disable-setuid-sandbox'
+            ]
         )
 
         # Создаем контекст с игнорированием SSL ошибок и Moscow timezone

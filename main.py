@@ -49,13 +49,16 @@ def parse_reference_data(headless: bool = True):
         return False
 
 
-def parse_prospectuses(headless: bool = True, output_dir: str = "Prospectuses"):
+def parse_prospectuses(headless: bool = True, output_dir: str = "Prospectuses",
+                       skip_foreign: bool = False, skip_rf: bool = False):
     """
     Запуск парсера проспектов
 
     Args:
         headless: Запускать браузер в headless режиме
         output_dir: Директория для сохранения проспектов
+        skip_foreign: Пропустить иностранные облигации
+        skip_rf: Пропустить РФ компании
     """
     logger.info("=" * 70)
     logger.info("ЗАПУСК ПАРСЕРА ПРОСПЕКТОВ")
@@ -64,7 +67,7 @@ def parse_prospectuses(headless: bool = True, output_dir: str = "Prospectuses"):
     parser = SPBEProspectusParser(headless=headless, output_dir=output_dir)
 
     try:
-        parser.parse_and_download_all()
+        parser.parse_and_download_all(skip_foreign=skip_foreign, skip_rf=skip_rf)
         logger.info("Парсинг проспектов успешно завершен")
         return True
 
@@ -95,6 +98,12 @@ def main():
 
   # Указать директорию для сохранения проспектов
   python main.py --prospectuses --output-dir "My_Prospectuses"
+
+  # Пропустить иностранные облигации (только РФ компании)
+  python main.py --prospectuses --skip-foreign
+
+  # Пропустить РФ компании (только иностранные облигации)
+  python main.py --prospectuses --skip-rf
         """
     )
 
@@ -129,6 +138,18 @@ def main():
         help='Директория для сохранения проспектов (по умолчанию: Prospectuses)'
     )
 
+    parser.add_argument(
+        '--skip-foreign',
+        action='store_true',
+        help='Пропустить парсинг иностранных облигаций (только для --prospectuses)'
+    )
+
+    parser.add_argument(
+        '--skip-rf',
+        action='store_true',
+        help='Пропустить парсинг РФ компаний (только для --prospectuses)'
+    )
+
     args = parser.parse_args()
 
     # Если не указан ни один флаг, показываем help
@@ -151,7 +172,12 @@ def main():
 
     # Запуск парсера проспектов
     if args.all or args.prospectuses:
-        success = parse_prospectuses(headless=headless, output_dir=args.output_dir)
+        success = parse_prospectuses(
+            headless=headless,
+            output_dir=args.output_dir,
+            skip_foreign=args.skip_foreign,
+            skip_rf=args.skip_rf
+        )
         results.append(('Проспекты', success))
 
     # Итоговый отчет

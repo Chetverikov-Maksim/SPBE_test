@@ -54,12 +54,23 @@ class SPBEProspectusParser:
 
     def setup_browser(self):
         """Настройка и запуск браузера"""
-        logger.info("Запуск Firefox через Playwright...")
+        logger.info("Запуск Chromium через Playwright...")
         self.playwright = sync_playwright().start()
 
-        self.browser = self.playwright.firefox.launch(
-            headless=self.headless,
-            args=['--no-sandbox', '--disable-dev-shm-usage']
+        # Используем regular Chromium с дополнительными флагами для стабильности
+        self.browser = self.playwright.chromium.launch(
+            headless=True,
+            executable_path='/root/.cache/ms-playwright/chromium-1194/chrome-linux/chrome',
+            args=[
+                '--no-sandbox',
+                '--disable-dev-shm-usage',
+                '--disable-gpu',
+                '--disable-software-rasterizer',
+                '--disable-extensions',
+                '--disable-setuid-sandbox',
+                '--single-process',  # Запуск в однопроцессном режиме для предотвращения крашей
+                '--no-zygote'  # Отключаем zygote process
+            ]
         )
 
         # Создаем контекст с игнорированием SSL ошибок
@@ -453,11 +464,22 @@ class SPBEProspectusParser:
         logger.info("Получение списка РФ компаний...")
 
         try:
-            self.page.goto(self.ISSUERS_BASE_URL, wait_until='networkidle', timeout=30000)
-            time.sleep(3)
+            # Используем domcontentloaded вместо networkidle для избежания крашей
+            self.page.goto(self.ISSUERS_BASE_URL, wait_until='domcontentloaded', timeout=60000)
+            logger.info("Страница загружена, ждем...")
+            time.sleep(10)  # Увеличиваем время ожидания для полной загрузки
 
-            # Ждем загрузки ссылок на эмитентов
-            self.page.wait_for_selector('a[href^="/issuers/"]', timeout=10000)
+            # Попробуем найти ссылки с разными селекторами
+            try:
+                self.page.wait_for_selector('a[href*="/issuers/"]', timeout=10000)
+                logger.info("Найдены ссылки на эмитентов")
+            except Exception:
+                logger.warning("Не удалось найти ссылки с стандартным селектором")
+                # Сохраним HTML для отладки
+                html = self.page.content()
+                logger.info(f"HTML длина: {len(html)}")
+                if len(html) < 5000:
+                    logger.info(f"HTML содержимое (первые 2000 символов): {html[:2000]}")
 
         except Exception as e:
             logger.error(f"Ошибка при загрузке страницы эмитентов: {e}")
@@ -518,89 +540,117 @@ class SPBEProspectusParser:
 
                 # Ищем раздел с облигациями
                 try:
-                    # Пробуем найти и кликнуть на раздел "Ценные бумаги"
-                    securities_link = self.page.query_selector('a:has-text("Ценные бумаги"), a:has-text("ценные бумаги")')
+                    # Пробуем найти и кликнуть на раздел "Ценные бумаги" (это div, не a)
+                    securities_link = self.page.query_selector('div.t_level:has-text("Ценные бумаги"), li:has-text("Ценные бумаги")')
                     if securities_link:
                         securities_link.click()
+                        logger.info(f"Кликнули на 'Ценные бумаги' для {issuer_name}")
                         time.sleep(2)
+
+                        # Теперь кликаем на подраздел "Облигации"
+                        bonds_link = self.page.query_selector('li#mn52, li:has-text("Облигации")')
+                        if bonds_link:
+                            bonds_link.click()
+                            logger.info("Кликнули на 'Облигации'")
+                            time.sleep(2)
+                        else:
+                            logger.warning(f"Не найден подраздел 'Облигации' для {issuer_name}")
+                            continue
                     else:
                         logger.warning(f"Не найден раздел 'Ценные бумаги' для эмитента {issuer_name}")
                         continue
-                except Exception:
-                    logger.warning(f"Не удалось перейти к разделу ценных бумаг для {issuer_name}")
+                except Exception as e:
+                    logger.warning(f"Не удалось перейти к разделу ценных бумаг для {issuer_name}: {e}")
                     continue
 
                 # Кликаем "Показать аннулированные" если есть
                 try:
-                    show_cancelled_btn = self.page.query_selector('button:has-text("Показать аннулированные"), button:has-text("показать аннулированные")')
+                    show_cancelled_btn = self.page.query_selector('input[value="Показать аннулированные"], button:has-text("Показать аннулированные")')
                     if show_cancelled_btn:
                         show_cancelled_btn.click()
+                        logger.info("Кликнули 'Показать аннулированные'")
                         time.sleep(1)
                 except Exception:
                     pass
 
-                # Получаем список облигаций
+                # Получаем список облигаций из таблицы
+                # Ищем ссылки на "Государственный регистрационный номер"
                 try:
-                    bond_rows = self.page.query_selector_all('tr, .bond-row, .security-row')
-                except Exception:
-                    bond_rows = []
+                    # Подождем загрузки таблицы
+                    time.sleep(2)
 
-                for bond_row in bond_rows:
-                    try:
-                        # Кликаем на строку с облигацией
-                        bond_row.click()
-                        time.sleep(1)
+                    # Ищем все ссылки которые являются регистрационными номерами
+                    # Они обычно в таблице и при клике открывают детали
+                    reg_number_links = self.page.query_selector_all('table a[href*="javascript"], table a[onclick]')
 
-                        # Ищем ISIN
-                        isin = None
+                    if not reg_number_links:
+                        # Альтернативный поиск - любые ссылки в таблице
+                        reg_number_links = self.page.query_selector_all('table.tablesaw a, table tbody tr a')
+
+                    logger.info(f"Найдено облигаций для {issuer_name}: {len(reg_number_links)}")
+
+                    for bond_idx, reg_link in enumerate(reg_number_links[:10]):  # Ограничим 10 для теста
                         try:
-                            isin_elem = self.page.query_selector('td:has-text("ISIN") + td, div:has-text("ISIN") + div')
-                            if isin_elem:
-                                isin = isin_elem.inner_text().strip()
-                        except Exception:
-                            pass
+                            # Получаем текст ссылки (это и есть регистрационный номер или ISIN)
+                            reg_number = reg_link.inner_text().strip()
+                            logger.info(f"Обработка облигации: {reg_number}")
 
-                        if not isin:
-                            try:
-                                all_text = bond_row.inner_text()
-                                if 'ISIN' in all_text:
-                                    parts = all_text.split('ISIN')
-                                    if len(parts) > 1:
-                                        isin = parts[1].strip().split()[0]
-                            except Exception:
-                                pass
+                            # Кликаем на ссылку чтобы раскрыть детали
+                            reg_link.click()
+                            time.sleep(2)
 
-                        if not isin:
-                            logger.warning("ISIN не найден для облигации")
+                            # Теперь ищем секцию с документами (таблица tbody с документами)
+                            # Ищем ссылки на документы в раскрывшейся секции
+                            doc_links = self.page.query_selector_all('a[href*="/Documents/Index"]')
+
+                            logger.info(f"Найдено документов для {reg_number}: {len(doc_links)}")
+
+                            for link in doc_links:
+                                try:
+                                    link_text = link.inner_text().strip()
+                                    pdf_url = link.get_attribute('href')
+
+                                    # Фильтруем нужные типы документов согласно ТЗ
+                                    doc_types_to_download = [
+                                        'Решение о выпуске',
+                                        'Проспект ценных бумаг',
+                                        'Программа облигаций',
+                                        'Условия размещения ценных бумаг'
+                                    ]
+
+                                    should_download = any(doc_type in link_text for doc_type in doc_types_to_download)
+
+                                    if should_download and pdf_url:
+                                        # Формируем полный URL
+                                        if not pdf_url.startswith('http'):
+                                            pdf_url = urljoin(self.ISSUERS_BASE_URL, pdf_url)
+
+                                        logger.info(f"Скачивание: {link_text}")
+
+                                        # Формируем путь для сохранения
+                                        issuer_dir = os.path.join(self.output_dir, self._sanitize_filename(issuer_name))
+                                        reg_dir = os.path.join(issuer_dir, self._sanitize_filename(reg_number))
+
+                                        # Формируем имя файла из типа документа
+                                        doc_type_filename = self._sanitize_filename(link_text)
+                                        filename = f"{doc_type_filename}.zip"  # Обычно это ZIP файлы
+
+                                        save_path = os.path.join(reg_dir, filename)
+
+                                        # Скачиваем файл
+                                        self.download_file(pdf_url, save_path)
+
+                                except Exception as e:
+                                    logger.warning(f"Ошибка при скачивании документа: {e}")
+                                    continue
+
+                        except Exception as e:
+                            logger.warning(f"Ошибка при обработке облигации {bond_idx}: {e}")
                             continue
 
-                        # Ищем все документы для этой облигации
-                        doc_links = self.page.query_selector_all('a[href*=".pdf"], a[download]')
-
-                        for link in doc_links:
-                            pdf_url = link.get_attribute('href')
-                            if pdf_url and '.pdf' in pdf_url.lower():
-                                # Формируем полный URL если нужно
-                                if not pdf_url.startswith('http'):
-                                    pdf_url = urljoin(issuer['url'], pdf_url)
-
-                                # Формируем путь для сохранения
-                                issuer_dir = os.path.join(self.output_dir, self._sanitize_filename(issuer_name))
-                                isin_dir = os.path.join(issuer_dir, isin)
-
-                                # Получаем имя файла
-                                filename = os.path.basename(urlparse(pdf_url).path)
-                                if not filename or filename == '':
-                                    filename = f"document_{i}.pdf"
-
-                                save_path = os.path.join(isin_dir, filename)
-
-                                # Скачиваем файл
-                                self.download_file(pdf_url, save_path)
-
-                    except Exception as e:
-                        logger.warning(f"Ошибка при обработке облигации: {e}")
-                        continue
+                except Exception as e:
+                    logger.warning(f"Ошибка при получении списка облигаций: {e}")
+                    pass
 
             except Exception as e:
                 logger.error(f"Ошибка при обработке эмитента {issuer['url']}: {e}")
@@ -629,28 +679,40 @@ class SPBEProspectusParser:
 
         return filename
 
-    def parse_and_download_all(self):
-        """Основная функция для скачивания всех проспектов"""
+    def parse_and_download_all(self, skip_foreign: bool = False, skip_rf: bool = False):
+        """
+        Основная функция для скачивания всех проспектов
+
+        Args:
+            skip_foreign: Пропустить иностранные облигации
+            skip_rf: Пропустить РФ компании
+        """
         self.setup_browser()
 
         try:
             # 1. Скачиваем проспекты для иностранных облигаций
-            logger.info("=" * 50)
-            logger.info("ЭТАП 1: Иностранные облигации")
-            logger.info("=" * 50)
+            if not skip_foreign:
+                logger.info("=" * 50)
+                logger.info("ЭТАП 1: Иностранные облигации")
+                logger.info("=" * 50)
 
-            foreign_bonds = self.get_foreign_bonds()
-            if foreign_bonds:
-                self.download_foreign_prospectuses(foreign_bonds)
+                foreign_bonds = self.get_foreign_bonds()
+                if foreign_bonds:
+                    self.download_foreign_prospectuses(foreign_bonds)
+            else:
+                logger.info("Пропускаем этап иностранных облигаций")
 
             # 2. Скачиваем проспекты для РФ компаний
-            logger.info("=" * 50)
-            logger.info("ЭТАП 2: РФ компании")
-            logger.info("=" * 50)
+            if not skip_rf:
+                logger.info("=" * 50)
+                logger.info("ЭТАП 2: РФ компании")
+                logger.info("=" * 50)
 
-            rf_issuers = self.get_rf_issuers()
-            if rf_issuers:
-                self.download_rf_prospectuses(rf_issuers)
+                rf_issuers = self.get_rf_issuers()
+                if rf_issuers:
+                    self.download_rf_prospectuses(rf_issuers)
+            else:
+                logger.info("Пропускаем этап РФ компаний")
 
             logger.info("=" * 50)
             logger.info("Скачивание проспектов завершено")
