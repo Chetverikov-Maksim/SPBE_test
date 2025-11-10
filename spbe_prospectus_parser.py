@@ -516,48 +516,38 @@ class SPBEProspectusParser:
     def get_rf_issuers(self) -> List[Dict]:
         """
         Получение списка РФ компаний (эмитентов)
-        Использует requests+BeautifulSoup для обхода блокировки Playwright
 
         Returns:
             Список словарей с информацией об эмитентах
         """
-        logger.info("Получение списка РФ компаний через requests...")
+        logger.info("Получение списка РФ компаний...")
 
         try:
-            from bs4 import BeautifulSoup
+            self.page.goto(self.ISSUERS_BASE_URL, wait_until='domcontentloaded', timeout=60000)
+            logger.info(f"Страница загружена: {self.page.url}")
+            time.sleep(3)
 
-            # Используем requests с реалистичными headers
-            headers = {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
-                'Accept-Language': 'ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7',
-                'Accept-Encoding': 'gzip, deflate, br',
-                'DNT': '1',
-                'Connection': 'keep-alive',
-                'Upgrade-Insecure-Requests': '1',
-            }
+            # Ждем загрузки ссылок на эмитентов
+            try:
+                self.page.wait_for_selector('a[href^="/issuers/"]', timeout=10000)
+                logger.info("Ссылки на эмитентов найдены")
+            except Exception as e:
+                logger.warning(f"Не дождались ссылок на эмитентов: {e}")
 
-            response = requests.get(self.ISSUERS_BASE_URL, headers=headers, verify=False, timeout=30)
-            response.raise_for_status()
+        except Exception as e:
+            logger.error(f"Ошибка при загрузке страницы эмитентов: {e}")
+            return []
 
-            logger.info(f"Страница загружена через requests, статус: {response.status_code}")
+        issuers = []
 
-            # Проверяем, не блокирует ли нас сайт
-            if 'Access denied' in response.text or 'Доступ запрещен' in response.text or 'captcha' in response.text.lower():
-                logger.error("Сайт блокирует доступ (Access denied или captcha)")
-                return []
-
-            # Парсим HTML
-            soup = BeautifulSoup(response.text, 'html.parser')
-
+        try:
             # Ищем ссылки на страницы эмитентов
-            issuer_links = soup.find_all('a', href=True)
+            issuer_links = self.page.query_selector_all('a[href^="/issuers/"]')
 
-            issuers = []
             seen_links = set()
 
             for link in issuer_links:
-                href = link.get('href')
+                href = link.get_attribute('href')
                 if href and '/issuers/' in href and href not in seen_links:
                     seen_links.add(href)
 
@@ -575,7 +565,6 @@ class SPBEProspectusParser:
 
         except Exception as e:
             logger.error(f"Ошибка при получении списка РФ эмитентов: {e}")
-            return []
 
         return issuers
 
